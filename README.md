@@ -1,14 +1,14 @@
-# PySpace IDE v1
+# PySpace IDE v1.3
 
-MVP мини-IDE: авторизация, роли, проекты, физическое локальное хранилище `storage/`, вложенные папки, редактирование Monaco, Ctrl+S, запуск Python, terminal, project sharing, LAN URL.
+Онлайн многопользовательская IDE: Python, HTML, CSS, SQL, загрузка/скачивание файлов, проекты и общий доступ между пользователями.
 
-## SnapDeploy
-Artifact: `Python App (.zip)`; Port: `8080`; Start Command: `python app.py`.
+## Render
+Dockerfile уже настроен на Gunicorn и порт `8080`.
 
-Можно задать `PYSPACE_ADMIN_USER` и `PYSPACE_ADMIN_PASSWORD`; если база пустая, они создадут admin. Если их нет, первый зарегистрированный пользователь становится admin.
+Переменные:
+- `PYSPACE_SECRET` — секрет сессий
+- `PYSPACE_ADMIN_USER` — начальный admin
+- `PYSPACE_ADMIN_PASSWORD` — пароль начального admin
 
-## LAN
-Приложение слушает `0.0.0.0:8080`. Кнопка LAN показывает локальный IP. Телефон в той же Wi-Fi сети открывает `http://IP:8080`.
-
-## Security
-Runner сейчас запускает Python subprocess на сервере и предназначен для доверенной LAN/прототипа. Для публичного сервиса обязательно заменить runner на sandbox (Docker/Firecracker, no network, limits, non-root, temporary FS).
+## Важно про хранение
+Файлы хранятся на сервере в `storage/`, поэтому отключение телефона/браузера/локального LAN не удаляет их. Для гарантированного сохранения между пересозданиями Render в следующем этапе рекомендуется подключить persistent storage/object storage + PostgreSQL.

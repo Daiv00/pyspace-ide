@@ -1,55 +1,33 @@
 let ed=null,project=null,file=null,role='user';
 const $=id=>document.getElementById(id);
-async function api(url, options={}){
-  const opts={...options,credentials:'same-origin',headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}};
-  let r;
-  try{r=await fetch(url,opts)}catch(e){throw new Error('Не удалось связаться с сервером: '+e.message)}
-  const text=await r.text(); let d={};
-  try{d=text?JSON.parse(text):{}}catch(e){if(!r.ok)throw new Error('Сервер вернул ошибку HTTP '+r.status);}
-  if(!r.ok)throw new Error(d.error||('Ошибка HTTP '+r.status));
-  return d;
-}
-function msg(text){$('msg').textContent=text?.message||String(text||'');}
-function setBusy(v){$('loginBtn').disabled=v;$('registerBtn').disabled=v;}
-async function login(){
-  const username=$('username').value.trim(), password=$('password').value;
-  if(!username||!password){msg('Введите логин и пароль');return;}
-  setBusy(true); msg('Выполняется вход...');
-  try{const m=await api('/api/login',{method:'POST',body:JSON.stringify({username,password})}); start(m)}catch(e){msg(e)}finally{setBusy(false)}
-}
-async function register(){
-  const username=$('username').value.trim(), password=$('password').value;
-  if(!username||!password){msg('Введите логин и пароль');return;}
-  setBusy(true); msg('Создание аккаунта...');
-  try{const r=await api('/api/register',{method:'POST',body:JSON.stringify({username,password})});msg('Аккаунт создан. Теперь нажмите «Войти».');}catch(e){msg(e)}finally{setBusy(false)}
-}
+const api=async(url,options={})=>{const opts={...options,credentials:'same-origin',headers:{...(options.body&&!(options.body instanceof FormData)?{'Content-Type':'application/json'}:{}),...(options.headers||{})}};let r;try{r=await fetch(url,opts)}catch(e){throw new Error('Не удалось связаться с сервером: '+e.message)}const text=await r.text();let d={};try{d=text?JSON.parse(text):{}}catch(e){if(!r.ok)throw new Error('HTTP '+r.status)}if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d};
+function msg(t){$('msg').textContent=t?.message||String(t||'')}function setBusy(v){$('loginBtn').disabled=v;$('registerBtn').disabled=v}
+async function login(){const username=$('username').value.trim(),password=$('password').value;if(!username||!password)return msg('Введите логин и пароль');setBusy(true);msg('Выполняется вход...');try{start(await api('/api/login',{method:'POST',body:JSON.stringify({username,password})}))}catch(e){msg(e)}finally{setBusy(false)}}
+async function register(){const username=$('username').value.trim(),password=$('password').value;if(!username||!password)return msg('Введите логин и пароль');setBusy(true);msg('Создание аккаунта...');try{await api('/api/register',{method:'POST',body:JSON.stringify({username,password})});msg('Аккаунт создан. Теперь нажмите «Войти».')}catch(e){msg(e)}finally{setBusy(false)}}
 function start(m){$('auth').classList.add('hidden');$('app').classList.remove('hidden');$('who').textContent=m.username||'';role=m.role||'user';$('admin').style.display=role==='admin'?'inline-block':'none';loadProjects().catch(msg)}
 async function boot(){try{const m=await api('/api/me');if(m.authenticated)start(m)}catch(e){msg(e)}}
-function initEditor(){
-  if(typeof require==='undefined'){msg('Не загрузился редактор Monaco. Обновите страницу (Ctrl+F5).');boot();return;}
-  require.config({paths:{vs:'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs'}});
-  require(['vs/editor/editor.main'],()=>{ed=monaco.editor.create($('editor'),{value:'',language:'python',theme:'vs-dark',automaticLayout:true,minimap:{enabled:true},fontSize:14,tabSize:4});boot()},()=>boot());
-}
+function initEditor(){if(typeof require==='undefined'){msg('Не загрузился редактор. Обновите страницу.');boot();return}require.config({paths:{vs:'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs'}});require(['vs/editor/editor.main'],()=>{ed=monaco.editor.create($('editor'),{value:'',language:'python',theme:'vs-dark',automaticLayout:true,minimap:{enabled:false},fontSize:14,tabSize:4,wordWrap:'on',padding:{top:10}});boot()},()=>boot())}
 async function logout(){try{await api('/api/logout',{method:'POST'})}finally{location.reload()}}
-async function loadProjects(){let ps=await api('/api/projects');$('projects').innerHTML=ps.map(p=>`<div class="project ${project?.id===p.id?'active':''}" data-pid="${p.id}">▸ ${esc(p.name)} <small>${esc(p.access)}</small></div>`).join('');$('projects').querySelectorAll('.project').forEach((el,i)=>el.onclick=()=>selectProject(ps[i]));if(!project&&ps[0])await selectProject(ps[0])}
-async function selectProject(p){project=p;file=null;await loadProjects();await loadFiles()}
-async function loadFiles(){let fs=await api(`/api/projects/${project.id}/files`);$('files').innerHTML=fs.map(f=>`<div class="file ${file?.path===f.path?'active':''}">• ${esc(f.path)}</div>`).join('');$('files').querySelectorAll('.file').forEach((el,i)=>el.onclick=()=>openFile(fs[i].path));if(!file&&fs[0])await openFile(fs[0].path)}
-async function openFile(p){file=await api(`/api/projects/${project.id}/files/${encodeURIComponent(p)}`);if(ed)ed.setValue(file.content);$('tab').textContent=file.path;await loadFiles()}
+async function loadProjects(){const ps=await api('/api/projects');$('projects').innerHTML=ps.map(p=>`<div class="project ${project?.id===p.id?'active':''}" data-pid="${p.id}">▸ ${esc(p.name)} <small>${esc(p.access)}</small></div>`).join('');$('projects').querySelectorAll('.project').forEach((el,i)=>el.onclick=()=>selectProject(ps[i]));if(!project&&ps[0])await selectProject(ps[0])}
+async function selectProject(p){project=p;file=null;await loadProjects();await loadFiles();closeSidebar()}
+async function loadFiles(){const fs=await api(`/api/projects/${project.id}/files`);$('files').innerHTML=fs.map(f=>`<div class="file ${file?.path===f.path?'active':''}">• ${esc(f.path)}</div>`).join('');$('files').querySelectorAll('.file').forEach((el,i)=>el.onclick=()=>openFile(fs[i].path));if(!file&&fs[0])await openFile(fs[0].path)}
+async function openFile(p){file=await api(`/api/projects/${project.id}/files/${encodeURIComponent(p)}`);if(ed){ed.setValue(file.content);setLanguage(file.language)}$('tab').textContent=file.path;await loadFiles()}
+function setLanguage(l){$('langSelect').value=l;if(ed){monaco.editor.setModelLanguage(ed.getModel(),l)}}
 async function newProject(){let n=prompt('Название проекта');if(!n)return;project=await api('/api/projects',{method:'POST',body:JSON.stringify({name:n})});file=null;await loadProjects();await loadFiles()}
 async function newFile(){if(!project)return alert('Выберите проект');let p=prompt('Путь, например src/utils.py');if(!p)return;await api(`/api/projects/${project.id}/files`,{method:'POST',body:JSON.stringify({path:p,content:''})});await openFile(p)}
 async function save(){if(!project||!file||!ed)return;await api(`/api/projects/${project.id}/files`,{method:'POST',body:JSON.stringify({path:file.path,content:ed.getValue()})});out('✓ Сохранено: '+file.path)}
+async function uploadFiles(list){if(!project||!list.length)return;const fd=new FormData();[...list].forEach(f=>fd.append('files',f));try{const r=await api(`/api/projects/${project.id}/upload`,{method:'POST',body:fd});out('✓ Загружено:\n'+r.files.join('\n'));await loadFiles();if(r.files[0])await openFile(r.files[0])}catch(e){out('✕ '+e.message)}}
+async function downloadCurrent(){if(!project||!file)return;location.href=`/api/projects/${project.id}/download/${encodeURIComponent(file.path)}`}
+async function downloadZip(){if(!project)return;location.href=`/api/projects/${project.id}/download.zip`}
 async function deleteFile(){if(!file||!confirm('Удалить файл?'))return;await api(`/api/projects/${project.id}/files`,{method:'DELETE',body:JSON.stringify({path:file.path})});file=null;await loadFiles()}
 async function renameFile(){if(!file)return;let p=prompt('Новый путь',file.path);if(!p||p===file.path)return;await api(`/api/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({old_path:file.path,new_path:p})});await openFile(p)}
-async function run(){if(!project||!file)return;out('▶ Выполнение...');try{let d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path})});out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+d.output)}catch(e){out(e.message)}}
+async function run(){if(!project||!file)return;await save();out('▶ Выполнение...');try{const d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path})});out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+d.output);if(d.kind==='html'||d.kind==='css')preview()}catch(e){out(e.message)}}
+async function preview(){if(!project||!file)return;const ext=file.path.toLowerCase().split('.').pop();if(!['html','htm','css'].includes(ext))return out('Предпросмотр доступен для HTML/CSS.');await save();const d=await api(`/api/projects/${project.id}/preview/${encodeURIComponent(file.path)}`);let html;if(ext==='html')html=d.content;else{const css=d.content;html=`<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><div class="preview-demo"><h1>PySpace CSS Preview</h1><p>Это предпросмотр CSS.</p><button>Button</button></div></body></html>`}modal(`<h2>Предпросмотр</h2><iframe class="preview" sandbox="allow-scripts" srcdoc="${escAttr(html)}"></iframe>`)}
 async function share(){if(!project)return;let u=prompt('Логин пользователя');if(!u)return;let r=prompt('Роль: editor или viewer','editor');if(!r)return;try{await api(`/api/projects/${project.id}/share`,{method:'POST',body:JSON.stringify({username:u,role:r})});alert('Доступ выдан')}catch(e){alert(e.message)}}
-async function lan(){let s=await api('/api/server');modal(`<h2>LAN сервер</h2><p class="muted">Откройте с телефона в той же Wi-Fi сети:</p><div class="url">${esc(s.url)}</div><div id="qr"></div><p class="muted">Если телефон не подключается, проверьте firewall и что оба устройства в одной сети.</p>`);if(typeof QRCode!=='undefined')setTimeout(()=>new QRCode($('qr'),{text:s.url,width:190,height:190}),50)}
-async function admin(){if(role!=='admin')return;let u=await api('/api/admin/users');modal('<h2>Пользователи</h2>'+u.map(x=>`<div class="member"><span>${esc(x.username)} · ${esc(x.role)}</span><span><button class="ghost" onclick="setRole(${x.id},'${x.role==='admin'?'user':'admin'}')">Роль</button><button class="ghost" onclick="delUser(${x.id})">Удалить</button></span></div>`).join(''))}
-async function setRole(id,r){await api(`/api/admin/users/${id}/role`,{method:'POST',body:JSON.stringify({role:r})});admin()}
-async function delUser(id){if(confirm('Удалить пользователя?')){await api(`/api/admin/users/${id}`,{method:'DELETE'});admin()}}
-function out(x){$('out').textContent=x}
-function esc(x){return String(x).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
-function modal(x){$('body').innerHTML=x;$('modal').classList.remove('hidden')}
-function hide(){$('modal').classList.add('hidden')}
-window.login=login;window.register=register;window.logout=logout;window.newProject=newProject;window.newFile=newFile;window.save=save;window.deleteFile=deleteFile;window.renameFile=renameFile;window.run=run;window.share=share;window.lan=lan;window.admin=admin;window.setRole=setRole;window.delUser=delUser;window.hide=hide;
-window.addEventListener('DOMContentLoaded',()=>{ $('loginBtn').addEventListener('click',login); $('registerBtn').addEventListener('click',register); $('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()}); initEditor(); });
-window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();run()}});
+async function lan(){const s=await api('/api/server');modal(`<h2>Общий доступ</h2><p class="muted">Это не LAN-адрес. Откройте этот адрес на телефоне, планшете или другом компьютере. Войдите под пользователем с доступом к проекту.</p><div class="url">${esc(s.url)}</div><p class="muted">Проекты и файлы хранятся на сервере и не зависят от того, подключены ли устройства к одной Wi‑Fi сети.</p>`)}
+async function admin(){if(role!=='admin')return;const u=await api('/api/admin/users');modal('<h2>Пользователи</h2>'+u.map(x=>`<div class="member"><span>${esc(x.username)} · ${esc(x.role)}</span><span><button class="ghost" onclick="setRole(${x.id},'${x.role==='admin'?'user':'admin'}')">Роль</button><button class="ghost" onclick="delUser(${x.id})">Удалить</button></span></div>`).join(''))}
+async function setRole(id,r){await api(`/api/admin/users/${id}/role`,{method:'POST',body:JSON.stringify({role:r})});admin()}async function delUser(id){if(confirm('Удалить пользователя?')){await api(`/api/admin/users/${id}`,{method:'DELETE'});admin()}}
+function out(x){$('out').textContent=x}function esc(x){return String(x).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]||c))}function escAttr(x){return esc(x).replace(/\n/g,'&#10;')}
+function modal(x){$('body').innerHTML=x;$('modal').classList.remove('hidden')}function hide(){$('modal').classList.add('hidden')}
+function closeSidebar(){if(window.innerWidth<=760)$('sidebar').classList.remove('open')}
+window.login=login;window.register=register;window.logout=logout;window.newProject=newProject;window.newFile=newFile;window.save=save;window.uploadFiles=uploadFiles;window.downloadCurrent=downloadCurrent;window.downloadZip=downloadZip;window.deleteFile=deleteFile;window.renameFile=renameFile;window.run=run;window.preview=preview;window.share=share;window.lan=lan;window.admin=admin;window.setRole=setRole;window.delUser=delUser;window.hide=hide;window.addEventListener('DOMContentLoaded',()=>{ $('loginBtn').addEventListener('click',login);$('registerBtn').addEventListener('click',register);$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});$('uploadInput').addEventListener('change',e=>{uploadFiles(e.target.files);e.target.value='' });$('langSelect').addEventListener('change',e=>setLanguage(e.target.value));$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));initEditor()});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();run()}});
