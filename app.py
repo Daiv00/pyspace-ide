@@ -276,8 +276,15 @@ def create_local_share():
     c=db(); c.execute('INSERT INTO local_shares(owner_id,token) VALUES(?,?)',(user()['id'],token)); c.commit(); c.close()
     share_dir(token).mkdir(parents=True,exist_ok=True)
     local_mode=not bool(request.headers.get('X-Forwarded-Host') or request.headers.get('X-Forwarded-Proto'))
+    base=request.host_url.rstrip('/')
+    primary=base+f'/share/{token}'
     urls=[f'http://{x}:{PORT}/share/{token}' for x in lan_ips()] if local_mode else []
-    return jsonify(token=token,urls=urls,cloud_url=request.host_url.rstrip('/')+f'/share/{token}',local_mode=local_mode,port=PORT)
+    return jsonify(token=token,urls=urls,cloud_url=primary,share_url=primary,local_mode=local_mode,port=PORT)
+
+@app.post('/api/quick-share')
+@auth
+def quick_share():
+    return create_local_share()
 
 @app.get('/api/local-share/<token>')
 def local_share_info(token):
@@ -321,7 +328,7 @@ def local_share_qr(token):
     if not r:return jsonify(error='Ссылка недействительна'),404
     try:
         import qrcode
-        url=os.getenv('PYSPACE_LAN_URL','').strip() or f'http://{lan_ips()[0]}:{PORT}/share/{token}'
+        url=request.host_url.rstrip('/')+f'/share/{token}'
         img=qrcode.make(url)
         mem=io.BytesIO(); img.save(mem,format='PNG'); mem.seek(0)
         return send_file(mem,mimetype='image/png')

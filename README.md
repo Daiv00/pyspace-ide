@@ -20,3 +20,9 @@ Reliable Admin/Exchange controls and an interactive input() dialog.
 
 ## v1.7
 Fixed the modal null-reference that broke Admin and Exchange dialogs; admin role is refreshed from the server before opening the panel.
+
+
+## v1.8
+- One-click QR room for sending files/text to PySpace.
+- Redesigned dashboard/workspace interface for future tools.
+- QR link and PNG download.
