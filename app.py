@@ -4,7 +4,7 @@ import zipfile
 import shutil
 from werkzeug.exceptions import RequestEntityTooLarge
 import os,re,sqlite3,secrets,socket,string,subprocess,sys,tempfile,shutil,zipfile,io,base64,datetime
-import threading, time, http.client, mimetypes
+import threading, time, http.client, mimetypes, urllib.request, urllib.error
 from pathlib import Path
 from functools import wraps
 from flask import Flask,request,jsonify,session,render_template,send_file,Response
@@ -126,6 +126,32 @@ def _web_preview_cleaner():
                 _stop_web_preview(token)
 
 threading.Thread(target=_web_preview_cleaner, daemon=True).start()
+
+# Keep-alive self-ping. Render's free tier spins a service down after 15
+# minutes without inbound traffic, and that traffic must reach Render's
+# public edge — pinging localhost from inside this same process does not
+# count. So this pings the service's own PUBLIC url instead. RENDER_EXTERNAL_URL
+# is set automatically by Render for every web service; if it's absent (e.g.
+# running locally, or on another host) the pinger simply does nothing.
+KEEPALIVE_ENABLED = os.getenv('PYSPACE_KEEPALIVE', '1') != '0'
+KEEPALIVE_INTERVAL = max(60, int(os.getenv('PYSPACE_KEEPALIVE_INTERVAL', '600')))  # seconds, default 10 min
+
+def _keep_alive_loop():
+    external_url = os.getenv('RENDER_EXTERNAL_URL', '').strip()
+    if not external_url:
+        app.logger.info('PYSPACE_KEEPALIVE: RENDER_EXTERNAL_URL not set, self-ping disabled.')
+        return
+    ping_url = external_url.rstrip('/') + '/health'
+    while True:
+        time.sleep(KEEPALIVE_INTERVAL)
+        try:
+            with urllib.request.urlopen(ping_url, timeout=20) as resp:
+                resp.read(1)
+        except Exception as e:
+            app.logger.warning(f'PYSPACE_KEEPALIVE: self-ping failed: {e}')
+
+if KEEPALIVE_ENABLED:
+    threading.Thread(target=_keep_alive_loop, daemon=True).start()
 
 def _free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
