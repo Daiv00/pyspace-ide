@@ -1,6 +1,90 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>PySpace Share</title><link rel="stylesheet" href="/static/style.css?v=21"></head><body class="share-page">
-<div class="share-wrap"><div class="share-card"><div class="share-brand">◈ <b>PySpace</b> <span>LOCAL SHARE</span></div><h1>Общий локальный обмен</h1><p class="muted">Отправляйте файлы и текст на устройство, которое создало эту ссылку. Всё сохраняется в локальном хранилище.</p>
-<div class="drop" id="drop">Перетащите файлы сюда или <label class="filepick">выберите файлы<input id="files" type="file" multiple></label></div>
-<textarea id="text" rows="7" placeholder="Или вставьте сюда текст, сообщение, код..."></textarea><input id="textName" value="message.txt" placeholder="Имя текстового файла"><button class="primary" id="send">Отправить</button><div id="status" class="status"></div>
-<h2>Файлы в хранилище</h2><div id="list" class="share-list">Загрузка...</div></div></div>
-<script>const token={{ token|tojson }};const $=x=>document.getElementById(x);async function api(u,o={}){const r=await fetch(u,o);const d=await r.json().catch(()=>({}));if(!r.ok)throw Error(d.error||('HTTP '+r.status));return d}function fmt(n){return n<1024?n+' Б':n<1048576?(n/1024).toFixed(1)+' КБ':(n/1048576).toFixed(1)+' МБ'}async function load(){try{const d=await api('/api/local-share/'+token);$('list').innerHTML=d.files.length?d.files.map(f=>'<div class="share-file"><span>📄 '+f.path+' <small>'+fmt(f.size)+'</small></span><a href="/api/local-share/'+token+'/download/'+encodeURIComponent(f.path)">Скачать</a></div>').join(''):'<div class="muted">Пока файлов нет.</div>'}catch(e){$('list').textContent=e.message}}async function send(){const fs=[...$('files').files];const fd=new FormData();fs.forEach(f=>fd.append('files',f));const text=$('text').value;if(text.trim()){fd.append('text',text);fd.append('text_name',$('textName').value||'message.txt')}if(!fs.length&&!text.trim())return $('status').textContent='Выберите файл или введите текст.';$('send').disabled=true;$('status').textContent='Отправка...';try{const d=await api('/api/local-share/'+token+'/upload',{method:'POST',body:fd});$('status').textContent='✓ Отправлено: '+d.files.join(', ');$('files').value='';$('text').value='';await load()}catch(e){$('status').textContent='✕ '+e.message}finally{$('send').disabled=false}}$('send').onclick=send;load();</script></body></html>
+<!doctype html>
+<html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>PySpace — Обмен файлами</title>
+<link rel="stylesheet" href="/static/style.css?v=23">
+</head>
+<body class="share-page">
+<div class="share-wrap"><div class="share-card">
+  <div class="share-brand">◈ <b>PySpace</b><span>FILE DROP</span></div>
+  <h1>Отправить файлы</h1>
+  <p class="muted">Эта страница предназначена для быстрой передачи файлов и текста владельцу комнаты. Ничего устанавливать не нужно.</p>
+
+  <div class="drop" id="drop">
+    <div class="drop-icon">↑</div>
+    <b>Перетащите файлы сюда</b>
+    <div class="muted small">или</div>
+    <label class="filepick">выберите файлы<input id="files" type="file" multiple></label>
+  </div>
+  <div id="selected" class="selected-list"></div>
+
+  <div class="share-section">
+    <div class="section-label">Текст или код</div>
+    <textarea id="text" rows="7" placeholder="Напишите сообщение, вставьте код или любой текст..."></textarea>
+    <div class="text-row"><input id="textName" value="message.txt" placeholder="Имя файла"><button class="secondary" id="sendText">Отправить текст</button></div>
+  </div>
+
+  <button class="primary send-main" id="send">↑ Отправить выбранные данные</button>
+  <div id="status" class="status"></div>
+
+  <div class="share-section">
+    <div class="section-label">Уже отправлено</div>
+    <div id="list" class="share-list">Загрузка...</div>
+  </div>
+</div></div>
+
+<script>
+const token={{ token|tojson }};
+const $=id=>document.getElementById(id);
+let selected=[];
+
+async function api(url,opts={}){
+  const r=await fetch(url,opts);
+  const ct=r.headers.get('content-type')||'';
+  const d=ct.includes('application/json')?await r.json():{error:await r.text()};
+  if(!r.ok) throw new Error(d.error||('HTTP '+r.status));
+  return d;
+}
+function fmt(n){n=Number(n||0);return n<1024?n+' Б':n<1048576?(n/1024).toFixed(1)+' КБ':(n/1048576).toFixed(1)+' МБ'}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+
+function renderSelected(){
+  $('selected').innerHTML=selected.length
+    ? selected.map((f,i)=>`<div class="selected-file"><span>📄 ${esc(f.name)} <small>${fmt(f.size)}</small></span><button onclick="removeSelected(${i})">×</button></div>`).join('')
+    : '';
+}
+window.removeSelected=i=>{selected.splice(i,1);renderSelected()};
+
+$('files').addEventListener('change',e=>{selected=[...e.target.files];renderSelected()});
+$('drop').addEventListener('dragover',e=>{e.preventDefault();$('drop').classList.add('dragover')});
+$('drop').addEventListener('dragleave',()=>$('drop').classList.remove('dragover'));
+$('drop').addEventListener('drop',e=>{e.preventDefault();$('drop').classList.remove('dragover');selected=[...e.dataTransfer.files];renderSelected()});
+
+async function load(){
+  try{
+    const d=await api('/api/local-share/'+encodeURIComponent(token));
+    $('list').innerHTML=d.files.length
+      ? d.files.map(f=>`<div class="share-file"><span>📄 ${esc(f.path)} <small>${fmt(f.size)}</small></span><a href="/api/local-share/${encodeURIComponent(token)}/download/${f.path.split('/').map(encodeURIComponent).join('/')}">Скачать</a></div>`).join('')
+      : '<div class="muted">Пока ничего не отправлено.</div>';
+  }catch(e){$('list').innerHTML='<div class="error">Не удалось загрузить список: '+esc(e.message)+'</div>'}
+}
+
+async function sendData(){
+  const text=$('text').value;
+  if(!selected.length && !text.trim()){ $('status').textContent='Выберите файлы или введите текст.'; return; }
+  const fd=new FormData();
+  selected.forEach(f=>fd.append('files',f,f.name));
+  if(text.trim()){fd.append('text',text);fd.append('text_name',$('textName').value.trim()||'message.txt')}
+  $('send').disabled=true;$('status').textContent='Отправка и сохранение...';
+  try{
+    const d=await api('/api/local-share/'+encodeURIComponent(token)+'/upload',{method:'POST',body:fd});
+    $('status').textContent='✓ '+(d.message||'Данные сохранены');
+    selected=[];$('files').value='';$('text').value='';renderSelected();await load();
+  }catch(e){$('status').textContent='✕ '+e.message}
+  finally{$('send').disabled=false}
+}
+$('send').onclick=sendData;
+$('sendText').onclick=async()=>{if(!$('text').value.trim()){$('status').textContent='Введите текст.';return}await sendData()};
+load();
+</script>
+</body></html>

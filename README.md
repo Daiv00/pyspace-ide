@@ -58,3 +58,7 @@ Fixed the modal null-reference that broke Admin and Exchange dialogs; admin role
 - Anonymous QR uploads are stored on disk and recorded in SQLite.
 - Admin can view all received files, download/delete them, and assign individual files to users.
 - Users can only see/download files explicitly assigned to them.
+
+
+## v2.3
+Fixed remote file/text transfer with a robust upload page, explicit selected-file list, drag/drop, text-only sending, immediate refresh, broader safe filenames, 100MB request limit, and persistent received-file records.

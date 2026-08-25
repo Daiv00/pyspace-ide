@@ -15,7 +15,7 @@ TIMEOUT=int(os.getenv('PYSPACE_RUN_TIMEOUT','8'))
 
 app=Flask(__name__)
 app.secret_key=os.getenv('PYSPACE_SECRET',secrets.token_hex(32))
-app.config['MAX_CONTENT_LENGTH']=20*1024*1024
+app.config['MAX_CONTENT_LENGTH']=100*1024*1024
 
 LANGS={'py':'python','pyw':'python','html':'html','htm':'html','css':'css','sql':'sql','js':'javascript','json':'json','txt':'plaintext'}
 
@@ -67,8 +67,17 @@ def adm(f):
 
 def clean(p):
     p=str(p or '').replace('\\','/').strip('/')
-    if not p or '..' in p.split('/') or len(p)>240 or not re.fullmatch(r'[\wА-Яа-яЁё ._\-/]+',p): raise ValueError('Недопустимый путь')
-    return p
+    parts=[x for x in p.split('/') if x not in ('','.')]
+    if not parts or any(x=='..' for x in parts) or len(p)>240:
+        raise ValueError('Недопустимый путь')
+    # Keep normal Unicode filenames, but remove characters that are unsafe on Windows/Linux.
+    safe=[]
+    for x in parts:
+        x=re.sub(r'[<>:"|?*\\x00-\\x1f]','_',x).strip()
+        if not x or x in ('.','..'): continue
+        safe.append(x)
+    if not safe: raise ValueError('Недопустимое имя файла')
+    return '/'.join(safe)
 
 def pdir(pid): return STORAGE/f'project_{pid}'
 
@@ -309,6 +318,10 @@ def my_shares():
         result.append({'token':r['token'],'created_at':r['created_at'],'active':bool(r['active']),'files_size':total})
     return jsonify(result)
 
+@app.get('/api/local-share/<token>/health')
+def local_share_health(token):
+    return jsonify(ok=bool(share_row(token)),token=token)
+
 @app.get('/api/local-share/<token>')
 def local_share_info(token):
     r=share_row(token)
@@ -322,32 +335,61 @@ def local_share_info(token):
 @app.post('/api/local-share/<token>/upload')
 def local_share_upload(token):
     r=share_row(token)
-    if not r:return jsonify(error='Ссылка недействительна'),404
+    if not r:
+        return jsonify(ok=False,error='Ссылка недействительна или обмен закрыт'),404
+    b=share_dir(token); b.mkdir(parents=True,exist_ok=True)
     incoming=request.files.getlist('files')
     text=request.form.get('text','')
-    saved=[]; c=db()
-    def record(x, original):
+    text_name=request.form.get('text_name','message.txt')
+    saved=[]
+    errors=[]
+    c=db()
+
+    def store_file(x, original):
+        rel=x.relative_to(b).as_posix()
         size=x.stat().st_size
-        c.execute('INSERT INTO received_files(share_token,owner_id,recipient_id,stored_path,original_name,size) VALUES(?,?,?,?,?,?)',(token,r['owner_id'],None,x.relative_to(share_dir(token)).as_posix(),original,size))
+        c.execute(
+            'INSERT INTO received_files(share_token,owner_id,recipient_id,stored_path,original_name,size) VALUES(?,?,?,?,?,?)',
+            (token,r['owner_id'],None,rel,original,size)
+        )
+        saved.append({'path':rel,'name':original,'size':size})
+
     if text.strip():
-        name=(request.form.get('text_name') or 'message.txt').strip()
-        try:x=share_path(token,name)
-        except ValueError:return jsonify(error='Недопустимое имя файла'),400
-        x.parent.mkdir(parents=True,exist_ok=True); x.write_text(text,encoding='utf-8'); saved.append(x.relative_to(share_dir(token)).as_posix()); record(x,name)
+        try:
+            name=clean(text_name or 'message.txt')
+            # Text is always a file so it is preserved exactly like an uploaded file.
+            x=share_path(token,name)
+            x.parent.mkdir(parents=True,exist_ok=True)
+            x.write_text(text,encoding='utf-8')
+            store_file(x,name)
+        except Exception as e:
+            errors.append('Текст: '+str(e))
+
     for f in incoming:
-        name=(f.filename or '').replace('\\','/').strip('/')
-        if not name:continue
-        try:x=share_path(token,name)
-        except ValueError:continue
-        x.parent.mkdir(parents=True,exist_ok=True); f.save(x); saved.append(x.relative_to(share_dir(token)).as_posix()); record(x,name)
-    if not saved:c.close(); return jsonify(error='Нет данных для загрузки'),400
+        original=(f.filename or '').replace('\\','/').split('/')[-1].strip()
+        if not original:
+            continue
+        try:
+            name=clean(original)
+            x=share_path(token,name)
+            x.parent.mkdir(parents=True,exist_ok=True)
+            f.save(str(x))
+            store_file(x,original)
+        except Exception as e:
+            errors.append(f'{original}: {e}')
+
+    if not saved:
+        c.close()
+        return jsonify(ok=False,error='Не удалось сохранить данные',details=errors),400
+
     c.commit(); c.close()
-    meta=share_dir(token)/'.pyspace_manifest.json'
-    manifest={'updated_at':datetime.datetime.utcnow().isoformat()+'Z','files':[]}
-    for x in sorted(share_dir(token).rglob('*')):
-        if x.is_file() and x.name!='.pyspace_manifest.json':manifest['files'].append({'path':x.relative_to(share_dir(token)).as_posix(),'size':x.stat().st_size})
+    meta=b/'.pyspace_manifest.json'
+    manifest={'updated_at':datetime.datetime.utcnow().isoformat()+'Z','files':[
+        {'path':x.relative_to(b).as_posix(),'size':x.stat().st_size}
+        for x in sorted(b.rglob('*')) if x.is_file() and x.name!='.pyspace_manifest.json'
+    ]}
     meta.write_text(__import__('json').dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
-    return jsonify(ok=True,files=saved)
+    return jsonify(ok=True,files=saved,errors=errors,message=f'Сохранено: {len(saved)}')
 
 @app.get('/api/received-files')
 @auth
