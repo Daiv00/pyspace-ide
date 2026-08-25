@@ -173,7 +173,38 @@ async function save(){
     throw e;
   }
 }
-async function uploadFiles(list){if(!project||!list.length)return;const fd=new FormData();[...list].forEach(f=>fd.append('files',f));try{const r=await api(`/api/projects/${project.id}/upload`,{method:'POST',body:fd});out('✓ Загружено:\n'+r.files.join('\n'));await loadFiles();if(r.files[0])await openFile(r.files[0])}catch(e){out('✕ '+e.message)}}
+async function uploadFiles(list){
+  if(!list.length)return;
+  if(!project)return alert('Сначала выберите или создайте проект слева.');
+  const fd=new FormData();[...list].forEach(f=>fd.append('files',f));
+  try{
+    const r=await api(`/api/projects/${project.id}/upload`,{method:'POST',body:fd});
+    if(!r.files||!r.files.length)return alert('Файл не загрузился. Проверьте, что выбран файл, и попробуйте ещё раз.');
+    out('✓ Загружено:\n'+r.files.join('\n'));await loadFiles();if(r.files[0])await openFile(r.files[0])
+  }catch(e){alert('✕ Не удалось загрузить файл: '+e.message);out('✕ '+e.message)}
+}
+async function pasteFromClipboard(){
+  if(!ed)return alert('Редактор ещё не загрузился.');
+  if(!project||!file)return alert('Сначала откройте файл, куда вставлять код.');
+  let text;
+  try{
+    text=await navigator.clipboard.readText();
+  }catch(e){
+    return alert('Нет доступа к буферу обмена.\nРазрешите доступ к буферу обмена для этого сайта: значок замка рядом с адресом сайта → «Разрешения» → «Буфер обмена» → Разрешить, затем попробуйте снова.');
+  }
+  if(!text)return alert('Буфер обмена пуст. Сначала скопируйте код в другом приложении.');
+  if(ed.isFallback){
+    const ta=document.getElementById('fallbackEditor');
+    const start=ta.selectionStart??ta.value.length,end=ta.selectionEnd??ta.value.length;
+    ta.value=ta.value.slice(0,start)+text+ta.value.slice(end);
+    const pos=start+text.length;ta.selectionStart=ta.selectionEnd=pos;ta.focus();
+  }else{
+    const sel=ed.getSelection();
+    ed.executeEdits('manual-paste',[{range:sel,text,forceMoveMarkers:true}]);
+    ed.focus();
+  }
+  out('✓ Вставлено из буфера обмена: '+text.length+' симв.');
+}
 async function downloadCurrent(){if(!project||!file)return;location.href=`/api/projects/${project.id}/download/${file.path.split('/').map(encodeURIComponent).join('/')}`}
 async function downloadZip(){if(!project)return;location.href=`/api/projects/${project.id}/download.zip`}
 async function formatCode(){
@@ -289,6 +320,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(menuBtn) menuBtn.addEventListener('click', ()=>$('sidebar').classList.toggle('open'));
 
   const uploadInput=document.getElementById('uploadInput');
+  const uploadTrigger=document.getElementById('uploadTrigger');
+  if(uploadTrigger&&uploadInput) uploadTrigger.addEventListener('click', ()=>uploadInput.click());
   if(uploadInput) uploadInput.addEventListener('change', async e=>{await uploadFiles(e.target.files);e.target.value=''});
 
   const modalEl=document.getElementById('modal');
