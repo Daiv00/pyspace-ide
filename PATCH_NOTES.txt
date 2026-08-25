@@ -1,6 +1,6 @@
-PySpace IDE v2.9 fixed
+PySpace IDE v3.0 ZIP upload fix
 
-- Removed the accidental duplicate /api/projects/upload-zip endpoint.
-- Preserved the project's original upload_project_zip_auto endpoint.
-- app.py passes Python syntax compilation.
-- Verified route-decorated view function names are unique.
+- ZIP uploader no longer blindly parses every response as JSON.
+- HTML/proxy/server error responses now produce a readable status/error instead of "Unexpected token <".
+- Same-origin credentials are explicitly sent with the ZIP request.
+- Static asset cache-busting updated to v27.
