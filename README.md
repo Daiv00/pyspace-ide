@@ -51,3 +51,10 @@ Fixed the modal null-reference that broke Admin and Exchange dialogs; admin role
 - `/s/<token>` now renders the share page directly.
 - Persistent data directories can be configured with `PYSPACE_DATA_DIR`, `PYSPACE_DB`, `PYSPACE_STORAGE_DIR`, and `PYSPACE_LOCAL_HUB_DIR`.
 - Project files and shared files are stored on disk.
+
+
+## v2.2
+- Added persistent received-file vault.
+- Anonymous QR uploads are stored on disk and recorded in SQLite.
+- Admin can view all received files, download/delete them, and assign individual files to users.
+- Users can only see/download files explicitly assigned to them.

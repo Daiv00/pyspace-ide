@@ -30,6 +30,8 @@ def init_db():
     CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY AUTOINCREMENT,owner_id INTEGER NOT NULL,name TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS members(project_id INTEGER,user_id INTEGER,role TEXT NOT NULL DEFAULT 'editor',PRIMARY KEY(project_id,user_id),FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS local_shares(id INTEGER PRIMARY KEY AUTOINCREMENT,owner_id INTEGER NOT NULL,token TEXT UNIQUE NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,active INTEGER NOT NULL DEFAULT 1,FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS received_files(id INTEGER PRIMARY KEY AUTOINCREMENT,share_token TEXT NOT NULL,owner_id INTEGER NOT NULL,recipient_id INTEGER,stored_path TEXT NOT NULL,original_name TEXT NOT NULL,size INTEGER NOT NULL DEFAULT 0,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE,FOREIGN KEY(recipient_id) REFERENCES users(id) ON DELETE SET NULL);
+    CREATE INDEX IF NOT EXISTS idx_received_recipient ON received_files(recipient_id);
     ''')
     env_user=os.getenv('PYSPACE_ADMIN_USER','').strip()
     env_pw=os.getenv('PYSPACE_ADMIN_PASSWORD','')
@@ -107,6 +109,9 @@ def share_path(token,name):
     name=clean(name); base=share_dir(token).resolve(); x=(base/name).resolve()
     if base!=x and base not in x.parents: raise ValueError('Недопустимый путь')
     return x
+
+def received_file_row(fid):
+    c=db(); r=c.execute('SELECT rf.*,u.username owner_name,ru.username recipient_name FROM received_files rf JOIN users u ON u.id=rf.owner_id LEFT JOIN users ru ON ru.id=rf.recipient_id WHERE rf.id=?',(fid,)).fetchone(); c.close(); return r
 
 @app.get('/')
 def index(): return render_template('index.html')
@@ -316,27 +321,73 @@ def local_share_info(token):
 
 @app.post('/api/local-share/<token>/upload')
 def local_share_upload(token):
-    if not share_row(token):return jsonify(error='Ссылка недействительна'),404
+    r=share_row(token)
+    if not r:return jsonify(error='Ссылка недействительна'),404
     incoming=request.files.getlist('files')
     text=request.form.get('text','')
-    saved=[]
+    saved=[]; c=db()
+    def record(x, original):
+        size=x.stat().st_size
+        c.execute('INSERT INTO received_files(share_token,owner_id,recipient_id,stored_path,original_name,size) VALUES(?,?,?,?,?,?)',(token,r['owner_id'],None,x.relative_to(share_dir(token)).as_posix(),original,size))
     if text.strip():
         name=(request.form.get('text_name') or 'message.txt').strip()
-        x=share_path(token,name); x.parent.mkdir(parents=True,exist_ok=True); x.write_text(text,encoding='utf-8'); saved.append(x.relative_to(share_dir(token)).as_posix())
+        try:x=share_path(token,name)
+        except ValueError:return jsonify(error='Недопустимое имя файла'),400
+        x.parent.mkdir(parents=True,exist_ok=True); x.write_text(text,encoding='utf-8'); saved.append(x.relative_to(share_dir(token)).as_posix()); record(x,name)
     for f in incoming:
         name=(f.filename or '').replace('\\','/').strip('/')
         if not name:continue
         try:x=share_path(token,name)
         except ValueError:continue
-        x.parent.mkdir(parents=True,exist_ok=True); f.save(x); saved.append(x.relative_to(share_dir(token)).as_posix())
-    if not saved:return jsonify(error='Нет данных для загрузки'),400
+        x.parent.mkdir(parents=True,exist_ok=True); f.save(x); saved.append(x.relative_to(share_dir(token)).as_posix()); record(x,name)
+    if not saved:c.close(); return jsonify(error='Нет данных для загрузки'),400
+    c.commit(); c.close()
     meta=share_dir(token)/'.pyspace_manifest.json'
     manifest={'updated_at':datetime.datetime.utcnow().isoformat()+'Z','files':[]}
     for x in sorted(share_dir(token).rglob('*')):
-        if x.is_file() and x.name!='.pyspace_manifest.json':
-            manifest['files'].append({'path':x.relative_to(share_dir(token)).as_posix(),'size':x.stat().st_size})
+        if x.is_file() and x.name!='.pyspace_manifest.json':manifest['files'].append({'path':x.relative_to(share_dir(token)).as_posix(),'size':x.stat().st_size})
     meta.write_text(__import__('json').dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     return jsonify(ok=True,files=saved)
+
+@app.get('/api/received-files')
+@auth
+def received_files():
+    u=user(); c=db()
+    if u['role']=='admin':
+        rows=c.execute('SELECT rf.*,u.username owner_name,ru.username recipient_name FROM received_files rf JOIN users u ON u.id=rf.owner_id LEFT JOIN users ru ON ru.id=rf.recipient_id ORDER BY rf.id DESC').fetchall()
+    else:
+        rows=c.execute('SELECT rf.*,u.username owner_name,ru.username recipient_name FROM received_files rf JOIN users u ON u.id=rf.owner_id LEFT JOIN users ru ON ru.id=rf.recipient_id WHERE rf.recipient_id=? ORDER BY rf.id DESC',(u['id'],)).fetchall()
+    c.close(); return jsonify([dict(x) for x in rows])
+
+@app.post('/api/admin/received-files/<int:fid>/assign')
+@adm
+def assign_received_file(fid):
+    d=request.get_json() or {}; username=str(d.get('username','')).strip()
+    c=db(); f=c.execute('SELECT id FROM received_files WHERE id=?',(fid,)).fetchone()
+    if not f:c.close(); return jsonify(error='Файл не найден'),404
+    ru=c.execute('SELECT id,username FROM users WHERE username=?',(username,)).fetchone()
+    if not ru:c.close(); return jsonify(error='Пользователь не найден'),404
+    c.execute('UPDATE received_files SET recipient_id=? WHERE id=?',(ru['id'],fid)); c.commit(); c.close(); return jsonify(ok=True,username=ru['username'])
+
+@app.delete('/api/admin/received-files/<int:fid>')
+@adm
+def delete_received_file(fid):
+    f=received_file_row(fid)
+    if not f:return jsonify(error='Файл не найден'),404
+    try: p=share_path(f['share_token'],f['stored_path']); p.unlink(missing_ok=True)
+    except Exception: pass
+    c=db(); c.execute('DELETE FROM received_files WHERE id=?',(fid,)); c.commit(); c.close(); return jsonify(ok=True)
+
+@app.get('/api/received-files/<int:fid>/download')
+@auth
+def download_received(fid):
+    u=user(); f=received_file_row(fid)
+    if not f:return jsonify(error='Файл не найден'),404
+    if u['role']!='admin' and f['recipient_id']!=u['id']:return jsonify(error='Нет доступа к этому файлу'),403
+    try:p=share_path(f['share_token'],f['stored_path'])
+    except ValueError:return jsonify(error='Недопустимый путь'),400
+    if not p.is_file():return jsonify(error='Файл отсутствует на диске'),404
+    return send_file(p,as_attachment=True,download_name=f['original_name'])
 
 @app.get('/api/local-share/<token>/download/<path:path>')
 def local_share_download(token,path):
