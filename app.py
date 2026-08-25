@@ -402,11 +402,20 @@ def download_project(pid):
 @app.get('/api/projects/<int:pid>/preview/<path:path>')
 @auth
 def preview_file(pid,path):
-    if not access(pid):return jsonify(error='Нет доступа'),403
-    try:x=fpath(pid,path)
-    except ValueError as e:return jsonify(error=str(e)),400
-    if not x.is_file():return jsonify(error='Файл не найден'),404
-    return jsonify(path=clean(path),content=x.read_text(encoding='utf-8',errors='replace'),language=language_for(x.name))
+    if not access(pid): return jsonify(error='Нет доступа'),403
+    try:
+        x=fpath(pid,path)
+    except ValueError as e:
+        return jsonify(error=str(e)),400
+    if not x.is_file(): return jsonify(error='Файл не найден'),404
+    ext=x.suffix.lower()
+    if ext not in ('.html','.htm','.css'):
+        return jsonify(error='Предпросмотр доступен для HTML/CSS'),400
+    if ext in ('.html','.htm'):
+        # Serve the actual file from the project, so relative CSS/JS/images work.
+        return send_file(x, mimetype='text/html; charset=utf-8')
+    return Response(x.read_text(encoding='utf-8',errors='replace'),
+                    mimetype='text/css')
 
 @app.delete('/api/projects/<int:pid>/files')
 @auth
@@ -691,6 +700,16 @@ def revoke_local_share(token):
     if r['owner_id']!=user()['id']:return jsonify(error='Только владелец'),403
     c=db(); c.execute('UPDATE local_shares SET active=0 WHERE token=?',(token,)); c.commit(); c.close(); return jsonify(ok=True)
 
+
+
+@app.get('/api/projects/<int:pid>/preview-assets/<path:path>')
+@auth
+def preview_asset(pid,path):
+    if not access(pid): return jsonify(error='Нет доступа'),403
+    try: x=fpath(pid,path)
+    except ValueError as e: return jsonify(error=str(e)),400
+    if not x.is_file(): return jsonify(error='Файл не найден'),404
+    return send_file(x)
 
 @app.post('/api/web-preview/start')
 @auth
