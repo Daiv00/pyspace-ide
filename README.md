@@ -43,3 +43,11 @@ Fixed the modal null-reference that broke Admin and Exchange dialogs; admin role
 - Added `/api/my-shares` for persistent share history.
 - Added share manifest files.
 - On Render, persistent files across redeploys/restarts require a Render Persistent Disk mounted to the application data directory; otherwise Render's filesystem is ephemeral.
+
+
+## v2.1
+- Restored the previous compact IDE interface.
+- Fixed local share token validation for 7-character short links.
+- `/s/<token>` now renders the share page directly.
+- Persistent data directories can be configured with `PYSPACE_DATA_DIR`, `PYSPACE_DB`, `PYSPACE_STORAGE_DIR`, and `PYSPACE_LOCAL_HUB_DIR`.
+- Project files and shared files are stored on disk.

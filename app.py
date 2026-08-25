@@ -5,9 +5,10 @@ from flask import Flask,request,jsonify,session,render_template,send_file
 from werkzeug.security import generate_password_hash,check_password_hash
 
 BASE=Path(__file__).resolve().parent
-DB=BASE/'data/pyspace.db'
-STORAGE=BASE/'storage'
-LOCAL_HUB=BASE/'local_hub'
+DATA_ROOT=Path(os.getenv('PYSPACE_DATA_DIR', str(BASE))).resolve()
+DB=Path(os.getenv('PYSPACE_DB', str(DATA_ROOT/'data/pyspace.db'))).resolve()
+STORAGE=Path(os.getenv('PYSPACE_STORAGE_DIR', str(DATA_ROOT/'storage'))).resolve()
+LOCAL_HUB=Path(os.getenv('PYSPACE_LOCAL_HUB_DIR', str(DATA_ROOT/'local_hub'))).resolve()
 PORT=int(os.getenv('PORT','8080'))
 HOST='0.0.0.0'
 TIMEOUT=int(os.getenv('PYSPACE_RUN_TIMEOUT','8'))
@@ -96,7 +97,7 @@ def lan_ips():
     return ips or ['127.0.0.1']
 
 def share_dir(token):
-    if not re.fullmatch(r'[A-Za-z0-9_-]{20,80}',token): raise ValueError('bad token')
+    if not re.fullmatch(r'[A-Za-z0-9_-]{7,80}',token): raise ValueError('bad token')
     return LOCAL_HUB/f'share_{token}'
 
 def share_row(token):
@@ -362,7 +363,7 @@ def local_share_qr(token):
 def short_share(token):
     if not share_row(token):
         return render_template('share.html',error='Ссылка недействительна или закрыта'),404
-    return __import__('flask').redirect(f'/share/{token}')
+    return render_template('share.html',token=token)
 
 @app.get('/share/<token>')
 def share_page(token):
