@@ -108,7 +108,27 @@ function initEditor(){
   },()=>{ed=createFallbackEditor();boot()});
 }
 async function logout(){try{await api('/api/logout',{method:'POST'})}finally{location.reload()}}
-async function loadProjects(){const ps=await api('/api/projects');$('projects').innerHTML=ps.map(p=>`<div class="project ${project?.id===p.id?'active':''}" data-pid="${p.id}"><span>▸ ${esc(p.name)}</span><small>${esc(p.access)}</small></div>`).join('');$('projects').querySelectorAll('.project').forEach((el,i)=>el.onclick=()=>selectProject(ps[i]));if(!project&&ps[0])await selectProject(ps[0])}
+async function loadProjects(){
+  const ps=await api('/api/projects');
+  $('projects').innerHTML=ps.map(p=>`<div class="project ${project?.id===p.id?'active':''}" data-pid="${p.id}"><span>▸ ${esc(p.name)}</span><span class="project-right"><small>${esc(p.access)}</small>${p.access==='owner'?`<button class="project-del" data-pid="${p.id}" title="Удалить проект" aria-label="Удалить проект">🗑</button>`:''}</span></div>`).join('');
+  $('projects').querySelectorAll('.project').forEach((el,i)=>el.onclick=e=>{if(e.target.closest('.project-del'))return;selectProject(ps[i])});
+  $('projects').querySelectorAll('.project-del').forEach(btn=>btn.onclick=e=>{e.stopPropagation();deleteProject(Number(btn.dataset.pid),ps)});
+  if(!project&&ps[0])await selectProject(ps[0])
+}
+async function deleteProject(pid,ps){
+  const p=(ps||[]).find(x=>x.id===pid);
+  if(!confirm(`Удалить проект «${p?p.name:pid}» безвозвратно? Это действие нельзя отменить.`))return;
+  try{
+    await api(`/api/projects/${pid}`,{method:'DELETE'});
+    if(project&&project.id===pid){
+      project=null;file=null;
+      $('tab').textContent='';$('files').innerHTML='';
+      if(ed)ed.setValue('');
+      out('✓ Проект удалён.');
+    }
+    await loadProjects();
+  }catch(e){alert('✕ Не удалось удалить проект: '+e.message)}
+}
 async function selectProject(p){
   try{
     project=p;file=null;await loadProjects();await loadFiles();closeSidebar();

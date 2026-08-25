@@ -13,3 +13,5 @@
 .zip-tool:disabled{opacity:.6;cursor:wait}
 
 .web-live-preview{width:100%;height:min(75vh,760px);border:1px solid rgba(255,255,255,.12);border-radius:12px;background:#fff}.web-preview-head{display:flex;justify-content:space-between;gap:16px;align-items:center;margin-bottom:12px}.web-preview-head h2{margin:4px 0}.web-preview-head p{margin:0}.web-preview-head .tool-btn{white-space:nowrap}
+
+.project-right{display:flex;align-items:center;gap:5px;flex-shrink:0}.project-del{background:transparent;border:0;color:#566173;padding:4px 6px;border-radius:7px;font-size:13px;line-height:1;flex-shrink:0}.project-del:hover{color:#ff6f7d;background:#241016}
