@@ -283,6 +283,9 @@ const stdinStyle=document.createElement("style");
 stdinStyle.textContent=`#stdinModal{position:fixed;inset:0;z-index:99999;display:grid;place-items:center}.stdin-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.76);backdrop-filter:blur(6px)}.stdin-dialog{position:relative;width:min(560px,calc(100vw - 24px));box-sizing:border-box;background:#151a25;border:1px solid #343c4e;border-radius:18px;padding:20px;box-shadow:0 25px 90px rgba(0,0,0,.6);color:#f4f6fb}.stdin-title{font-size:20px;font-weight:750;margin-bottom:7px}.stdin-sub{font-size:13px;color:#aeb7c8;line-height:1.45;margin-bottom:14px}#stdinPromptValue{width:100%;box-sizing:border-box;background:#0b1018;color:#f4f6fb;border:1px solid #3a4355;border-radius:12px;padding:12px;font:14px ui-monospace,Consolas,monospace;resize:vertical}.stdin-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}.stdin-actions button{border:0;border-radius:10px;padding:10px 16px;cursor:pointer;background:#2b3342;color:#fff}.stdin-actions #stdinRun{background:#705df5}`;
 document.head.appendChild(stdinStyle);
 
+function qrImgError(img){
+  img.parentElement.innerHTML='<div class="qr-error">Не удалось загрузить QR-код. Проверьте, что на сервере установлен модуль Pillow (нужен библиотеке qrcode для рисования PNG).</div>';
+}
 async function quickQR(){
   try{
     const d=await api('/api/local-share',{method:'POST'});
@@ -294,7 +297,7 @@ async function quickQR(){
         <div class="qr-kicker">QUICK SHARE</div>
         <h2>Отправить файл</h2>
         <p class="muted">Отсканируйте QR-код камерой телефона.</p>
-        <div class="qr-frame"><img src="${qrUrl}" alt="QR-код" onerror="this.parentElement.innerHTML='<div style="color:#c55">Не удалось загрузить QR</div>'"></div>
+        <div class="qr-frame"><img src="${qrUrl}" alt="QR-код" onerror="qrImgError(this)"></div>
         <div class="qr-url">${esc(url)}</div>
         <div class="qr-actions">
           <button class="primary" onclick="copyText('${escAttr(url)}')">Копировать ссылку</button>
