@@ -1,4 +1,4 @@
-import os,re,sqlite3,secrets,socket,subprocess,sys,tempfile,shutil,zipfile,io
+import os,re,sqlite3,secrets,socket,subprocess,sys,tempfile,shutil,zipfile,io,base64,datetime
 from pathlib import Path
 from functools import wraps
 from flask import Flask,request,jsonify,session,render_template,send_file
@@ -7,6 +7,7 @@ from werkzeug.security import generate_password_hash,check_password_hash
 BASE=Path(__file__).resolve().parent
 DB=BASE/'data/pyspace.db'
 STORAGE=BASE/'storage'
+LOCAL_HUB=BASE/'local_hub'
 PORT=int(os.getenv('PORT','8080'))
 HOST='0.0.0.0'
 TIMEOUT=int(os.getenv('PYSPACE_RUN_TIMEOUT','8'))
@@ -27,6 +28,7 @@ def init_db():
     CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'user',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY AUTOINCREMENT,owner_id INTEGER NOT NULL,name TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS members(project_id INTEGER,user_id INTEGER,role TEXT NOT NULL DEFAULT 'editor',PRIMARY KEY(project_id,user_id),FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
+    CREATE TABLE IF NOT EXISTS local_shares(id INTEGER PRIMARY KEY AUTOINCREMENT,owner_id INTEGER NOT NULL,token TEXT UNIQUE NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,active INTEGER NOT NULL DEFAULT 1,FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE);
     ''')
     if c.execute('SELECT COUNT(*) n FROM users').fetchone()['n']==0 and os.getenv('PYSPACE_ADMIN_USER') and os.getenv('PYSPACE_ADMIN_PASSWORD'):
         c.execute('INSERT INTO users(username,password_hash,role) VALUES(?,?,?)',(os.getenv('PYSPACE_ADMIN_USER'),generate_password_hash(os.getenv('PYSPACE_ADMIN_PASSWORD')),'admin')); c.commit()
@@ -70,6 +72,32 @@ def access(pid,write=False):
 
 def language_for(path):
     return LANGS.get(Path(path).suffix.lower().lstrip('.'),'plaintext')
+
+def lan_ips():
+    forced=os.getenv('PYSPACE_LAN_HOST','').strip()
+    if forced: return [forced]
+    ips=[]
+    try:
+        for x in socket.gethostbyname_ex(socket.gethostname())[2]:
+            if x.startswith(('10.','192.168.','172.16.','172.17.','172.18.','172.19.','172.2','172.3')) and x not in ips: ips.append(x)
+    except Exception: pass
+    try:
+        s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.connect(('8.8.8.8',80)); x=s.getsockname()[0]; s.close()
+        if x not in ips and x not in ('127.0.0.1','0.0.0.0'): ips.insert(0,x)
+    except Exception: pass
+    return ips or ['127.0.0.1']
+
+def share_dir(token):
+    if not re.fullmatch(r'[A-Za-z0-9_-]{20,80}',token): raise ValueError('bad token')
+    return LOCAL_HUB/f'share_{token}'
+
+def share_row(token):
+    c=db(); r=c.execute('SELECT * FROM local_shares WHERE token=? AND active=1',(token,)).fetchone(); c.close(); return r
+
+def share_path(token,name):
+    name=clean(name); base=share_dir(token).resolve(); x=(base/name).resolve()
+    if base!=x and base not in x.parents: raise ValueError('Недопустимый путь')
+    return x
 
 @app.get('/')
 def index(): return render_template('index.html')
@@ -226,10 +254,84 @@ def share(pid):
 @app.get('/api/server')
 @auth
 def server():
-    # This is a cloud/shared workspace URL, not a private LAN address.
     scheme=request.headers.get('X-Forwarded-Proto','https' if request.is_secure else 'http').split(',')[0]
     host=request.headers.get('X-Forwarded-Host',request.host).split(',')[0]
-    return jsonify(host=host,port=PORT,url=f'{scheme}://{host}')
+    cloud=f'{scheme}://{host}'
+    local_mode=not bool(request.headers.get('X-Forwarded-Host') or request.headers.get('X-Forwarded-Proto'))
+    lans=[f'http://{x}:{PORT}' for x in lan_ips()] if local_mode else []
+    return jsonify(cloud_url=cloud,lan_urls=lans,port=PORT,local_mode=local_mode)
+
+@app.post('/api/local-share')
+@auth
+def create_local_share():
+    token=secrets.token_urlsafe(24).replace('-','_').replace('~','_')
+    c=db(); c.execute('INSERT INTO local_shares(owner_id,token) VALUES(?,?)',(user()['id'],token)); c.commit(); c.close()
+    share_dir(token).mkdir(parents=True,exist_ok=True)
+    local_mode=not bool(request.headers.get('X-Forwarded-Host') or request.headers.get('X-Forwarded-Proto'))
+    urls=[f'http://{x}:{PORT}/share/{token}' for x in lan_ips()] if local_mode else []
+    return jsonify(token=token,urls=urls,cloud_url=request.host_url.rstrip('/')+f'/share/{token}',local_mode=local_mode,port=PORT)
+
+@app.get('/api/local-share/<token>')
+def local_share_info(token):
+    r=share_row(token)
+    if not r:return jsonify(error='Ссылка недействительна'),404
+    b=share_dir(token); b.mkdir(parents=True,exist_ok=True)
+    items=[]
+    for x in sorted(b.rglob('*')):
+        if x.is_file(): items.append({'path':x.relative_to(b).as_posix(),'size':x.stat().st_size})
+    return jsonify(active=True,files=items,token=token)
+
+@app.post('/api/local-share/<token>/upload')
+def local_share_upload(token):
+    if not share_row(token):return jsonify(error='Ссылка недействительна'),404
+    incoming=request.files.getlist('files')
+    text=request.form.get('text','')
+    saved=[]
+    if text.strip():
+        name=(request.form.get('text_name') or 'message.txt').strip()
+        x=share_path(token,name); x.parent.mkdir(parents=True,exist_ok=True); x.write_text(text,encoding='utf-8'); saved.append(x.relative_to(share_dir(token)).as_posix())
+    for f in incoming:
+        name=(f.filename or '').replace('\\','/').strip('/')
+        if not name:continue
+        try:x=share_path(token,name)
+        except ValueError:continue
+        x.parent.mkdir(parents=True,exist_ok=True); f.save(x); saved.append(x.relative_to(share_dir(token)).as_posix())
+    if not saved:return jsonify(error='Нет данных для загрузки'),400
+    return jsonify(ok=True,files=saved)
+
+@app.get('/api/local-share/<token>/download/<path:path>')
+def local_share_download(token,path):
+    if not share_row(token):return jsonify(error='Ссылка недействительна'),404
+    try:x=share_path(token,path)
+    except ValueError as e:return jsonify(error=str(e)),400
+    if not x.is_file():return jsonify(error='Файл не найден'),404
+    return send_file(x,as_attachment=True,download_name=x.name)
+
+@app.get('/api/local-share/<token>/qr')
+def local_share_qr(token):
+    r=share_row(token)
+    if not r:return jsonify(error='Ссылка недействительна'),404
+    try:
+        import qrcode
+        url=os.getenv('PYSPACE_LAN_URL','').strip() or f'http://{lan_ips()[0]}:{PORT}/share/{token}'
+        img=qrcode.make(url)
+        mem=io.BytesIO(); img.save(mem,format='PNG'); mem.seek(0)
+        return send_file(mem,mimetype='image/png')
+    except Exception as e:
+        return jsonify(error=str(e)),500
+
+@app.get('/share/<token>')
+def share_page(token):
+    if not share_row(token):return render_template('share.html',error='Ссылка недействительна или закрыта'),404
+    return render_template('share.html',token=token)
+
+@app.post('/api/local-share/<token>/revoke')
+@auth
+def revoke_local_share(token):
+    r=share_row(token)
+    if not r:return jsonify(error='Ссылка не найдена'),404
+    if r['owner_id']!=user()['id']:return jsonify(error='Только владелец'),403
+    c=db(); c.execute('UPDATE local_shares SET active=0 WHERE token=?',(token,)); c.commit(); c.close(); return jsonify(ok=True)
 
 @app.post('/api/run')
 @auth
@@ -256,13 +358,15 @@ def run():
             except Exception as e:
                 con.close(); return jsonify(ok=False,kind='sql',output=str(e))
     if ext not in ('.py','.pyw'): return jsonify(error='Для запуска поддерживаются Python, HTML, CSS и SQL'),400
+    stdin_data=str(d.get('stdin',''))
+    if len(stdin_data)>20000:return jsonify(error='Тестовые данные слишком большие'),413
     with tempfile.TemporaryDirectory(prefix='pyspace_') as td:
         work=Path(td)/'project'; shutil.copytree(pdir(pid),work); script=work/path
         env={'PATH':os.environ.get('PATH',''),'PYTHONIOENCODING':'utf-8','PYTHONUNBUFFERED':'1','HOME':str(work)}
         try:
-            r=subprocess.run([sys.executable,'-I',str(script)],cwd=work,capture_output=True,text=True,timeout=TIMEOUT,env=env)
+            r=subprocess.run([sys.executable,'-I',str(script)],cwd=work,input=stdin_data,capture_output=True,text=True,timeout=TIMEOUT,env=env)
             return jsonify(ok=r.returncode==0,kind='python',returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
-        except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.')
+        except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.\nВозможна бесконечная input()/петля.')
 
 @app.get('/api/admin/users')
 @adm
