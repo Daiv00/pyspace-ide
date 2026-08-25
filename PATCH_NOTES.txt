@@ -1,0 +1,6 @@
+PySpace IDE v2.7 fixed ZIP upload
+
+- Frontend no longer blindly parses HTML error pages as JSON.
+- ZIP upload returns useful JSON errors.
+- Added 100 MB request limit and ZIP/path validation.
+- Added project metadata for imported ZIP projects.

@@ -1,3 +1,8 @@
+import io
+import json
+import zipfile
+import shutil
+from werkzeug.exceptions import RequestEntityTooLarge
 import os,re,sqlite3,secrets,socket,string,subprocess,sys,tempfile,shutil,zipfile,io,base64,datetime
 from pathlib import Path
 from functools import wraps
@@ -595,4 +600,75 @@ def deluser(uid):
     c=db();c.execute('DELETE FROM users WHERE id=?',(uid,));c.commit();c.close();return jsonify(ok=True)
 
 init_db()
+@app.route('/api/projects/upload-zip', methods=['POST'])
+def upload_project_zip():
+    """Upload a ZIP project and create a project from its contents."""
+    try:
+        if 'file' not in request.files:
+            return jsonify(ok=False, error='ZIP-файл не передан'), 400
+
+        file = request.files['file']
+        filename = (file.filename or '').strip()
+
+        if not filename:
+            return jsonify(ok=False, error='Не выбран файл'), 400
+
+        if not filename.lower().endswith('.zip'):
+            return jsonify(ok=False, error='Разрешены только ZIP-файлы'), 400
+
+        # Read into memory only after Flask's request-size limit has been applied.
+        data = file.read()
+        if not data:
+            return jsonify(ok=False, error='ZIP-файл пустой'), 400
+
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile:
+            return jsonify(ok=False, error='Файл повреждён или не является корректным ZIP-архивом'), 400
+
+        # Protect against path traversal while extracting.
+        members = zf.infolist()
+        for member in members:
+            name = member.filename.replace('\\', '/')
+            if name.startswith('/') or name.startswith('../') or '/..' in name:
+                return jsonify(ok=False, error='ZIP содержит небезопасные пути'), 400
+
+        project_name = os.path.splitext(os.path.basename(filename))[0].strip() or 'Imported Project'
+        project_id = str(uuid.uuid4())
+
+        project_dir = os.path.join(PROJECTS_DIR, project_id)
+        os.makedirs(project_dir, exist_ok=True)
+
+        # If the ZIP contains a single top-level directory, unwrap it.
+        top_levels = {m.filename.replace('\\', '/').split('/')[0] for m in members if m.filename}
+        zf.extractall(project_dir)
+
+        entries = os.listdir(project_dir)
+        if len(entries) == 1 and os.path.isdir(os.path.join(project_dir, entries[0])):
+            nested = os.path.join(project_dir, entries[0])
+            for entry in os.listdir(nested):
+                shutil.move(os.path.join(nested, entry), project_dir)
+            shutil.rmtree(nested, ignore_errors=True)
+
+        # Store project metadata using the same format as normal projects when possible.
+        project_meta = {
+            'id': project_id,
+            'name': project_name,
+            'created_at': datetime.utcnow().isoformat() + 'Z',
+            'source': 'zip'
+        }
+        meta_path = os.path.join(project_dir, 'project.json')
+        with open(meta_path, 'w', encoding='utf-8') as mf:
+            json.dump(project_meta, mf, ensure_ascii=False, indent=2)
+
+        return jsonify(ok=True, project=project_meta, id=project_id, name=project_name), 200
+
+    except RequestEntityTooLarge:
+        return jsonify(ok=False, error='ZIP слишком большой. Максимальный размер — 100 МБ.'), 413
+    except Exception as exc:
+        app.logger.exception('ZIP project upload failed')
+        return jsonify(ok=False, error=f'Ошибка загрузки ZIP: {exc}'), 500
+
+
+
 if __name__=='__main__':app.run(host=HOST,port=PORT,debug=False)
