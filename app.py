@@ -30,8 +30,16 @@ def init_db():
     CREATE TABLE IF NOT EXISTS members(project_id INTEGER,user_id INTEGER,role TEXT NOT NULL DEFAULT 'editor',PRIMARY KEY(project_id,user_id),FOREIGN KEY(project_id) REFERENCES projects(id) ON DELETE CASCADE,FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE);
     CREATE TABLE IF NOT EXISTS local_shares(id INTEGER PRIMARY KEY AUTOINCREMENT,owner_id INTEGER NOT NULL,token TEXT UNIQUE NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,active INTEGER NOT NULL DEFAULT 1,FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE);
     ''')
-    if c.execute('SELECT COUNT(*) n FROM users').fetchone()['n']==0 and os.getenv('PYSPACE_ADMIN_USER') and os.getenv('PYSPACE_ADMIN_PASSWORD'):
-        c.execute('INSERT INTO users(username,password_hash,role) VALUES(?,?,?)',(os.getenv('PYSPACE_ADMIN_USER'),generate_password_hash(os.getenv('PYSPACE_ADMIN_PASSWORD')),'admin')); c.commit()
+    env_user=os.getenv('PYSPACE_ADMIN_USER','').strip()
+    env_pw=os.getenv('PYSPACE_ADMIN_PASSWORD','')
+    if env_user and env_pw:
+        existing=c.execute('SELECT id,role FROM users WHERE username=?',(env_user,)).fetchone()
+        if not existing:
+            c.execute('INSERT INTO users(username,password_hash,role) VALUES(?,?,?)',(env_user,generate_password_hash(env_pw),'admin'))
+        elif existing['role']!='admin':
+            # Keep the configured Render admin account as admin even when an old SQLite DB exists.
+            c.execute('UPDATE users SET role=? WHERE id=?',('admin',existing['id']))
+        c.commit()
     c.close()
 
 def user():
@@ -367,6 +375,15 @@ def run():
             r=subprocess.run([sys.executable,'-I',str(script)],cwd=work,input=stdin_data,capture_output=True,text=True,timeout=TIMEOUT,env=env)
             return jsonify(ok=r.returncode==0,kind='python',returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
         except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.\nВозможна бесконечная input()/петля.')
+
+@app.get('/admin')
+def admin_page():
+    u=user()
+    if not u:
+        return jsonify(error='Требуется авторизация'),401
+    if u['role']!='admin':
+        return jsonify(error='Нужны права admin'),403
+    return render_template('index.html')
 
 @app.get('/api/admin/users')
 @adm

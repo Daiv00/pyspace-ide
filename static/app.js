@@ -91,21 +91,22 @@ window.addEventListener('DOMContentLoaded',()=>{$('loginBtn').addEventListener('
     if(id.includes("admin") || text.includes("админ")){
       e.preventDefault(); e.stopPropagation();
       try{
-        const r=await fetch("/admin",{credentials:"same-origin"});
-        if(r.ok) location.href="/admin"; else alert("Админ-панель доступна только администратору.");
-      }catch(err){alert("Не удалось открыть админ-панель.");}
+        if(role!=='admin') {
+          // Refresh role from server so an admin account created by environment settings is recognized.
+          const me=await api('/api/me');
+          role=me.role||'user';
+          $('admin').style.display=role==='admin'?'inline-flex':'none';
+        }
+        if(role==='admin') await window.admin();
+        else alert("Админ-панель доступна только администратору.");
+      }catch(err){alert(err.message||"Не удалось открыть админ-панель.");}
       return;
     }
 
     if(id.includes("share") || id.includes("exchange") || text.includes("обмен")){
       e.preventDefault(); e.stopPropagation();
-      // Prefer existing share function.
-      try{
-        if(typeof window.createShare==="function"){ await window.createShare(); return; }
-        if(typeof window.createShareLink==="function"){ await window.createShareLink(); return; }
-      }catch(err){console.error(err);}
-      // Fallback to share page.
-      location.href="/share";
+      try{ await window.localShare(); }
+      catch(err){ alert(err.message||"Не удалось создать обмен."); }
       return;
     }
 
