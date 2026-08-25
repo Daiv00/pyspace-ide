@@ -568,6 +568,31 @@ def run():
     if ext not in ('.py','.pyw'): return jsonify(error='Для запуска поддерживаются Python, HTML, CSS и SQL'),400
     stdin_data=str(d.get('stdin',''))
     if len(stdin_data)>20000:return jsonify(error='Тестовые данные слишком большие'),413
+
+    # Web applications (Flask/FastAPI/uvicorn/http.server) are servers by design:
+    # running them as a console program would wait forever and falsely look like
+    # an input()/infinite-loop timeout. Test Flask apps without calling app.run().
+    try:
+        source = target.read_text(encoding='utf-8', errors='replace')
+    except Exception:
+        source = ''
+    web_markers = (
+        'from flask import', 'import flask', 'Flask(', '.run(host=', '.run(port=',
+        'FastAPI(', 'uvicorn.run(', 'app.run(', 'serve_forever('
+    )
+    is_web = any(marker in source for marker in web_markers)
+    if is_web:
+        return jsonify(
+            ok=True,
+            kind='web',
+            output=(
+                '🌐 Обнаружено веб-приложение. Оно не запускается как консольная программа, '
+                'потому что веб-сервер работает постоянно и раньше ошибочно приводил к таймауту.\n\n'
+                'Для проверки используйте веб-просмотр/Deploy. '
+                'Если это Flask-приложение, сервер запускается через Gunicorn в Render.'
+            )
+        )
+
     with tempfile.TemporaryDirectory(prefix='pyspace_') as td:
         work=Path(td)/'project'; shutil.copytree(pdir(pid),work); script=work/path
         env={'PATH':os.environ.get('PATH',''),'PYTHONIOENCODING':'utf-8','PYTHONUNBUFFERED':'1','HOME':str(work)}
