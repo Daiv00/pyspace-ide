@@ -16,7 +16,7 @@ STORAGE=Path(os.getenv('PYSPACE_STORAGE_DIR', str(DATA_ROOT/'storage'))).resolve
 LOCAL_HUB=Path(os.getenv('PYSPACE_LOCAL_HUB_DIR', str(DATA_ROOT/'local_hub'))).resolve()
 PORT=int(os.getenv('PORT','8080'))
 HOST='0.0.0.0'
-TIMEOUT=int(os.getenv('PYSPACE_RUN_TIMEOUT','8'))
+TIMEOUT=max(1,int(os.getenv('PYSPACE_RUN_TIMEOUT','30')))
 
 app=Flask(__name__)
 app.secret_key=os.getenv('PYSPACE_SECRET',secrets.token_hex(32))
@@ -572,9 +572,39 @@ def run():
         work=Path(td)/'project'; shutil.copytree(pdir(pid),work); script=work/path
         env={'PATH':os.environ.get('PATH',''),'PYTHONIOENCODING':'utf-8','PYTHONUNBUFFERED':'1','HOME':str(work)}
         try:
-            r=subprocess.run([sys.executable,'-I',str(script)],cwd=work,input=stdin_data,capture_output=True,text=True,timeout=TIMEOUT,env=env)
-            return jsonify(ok=r.returncode==0,kind='python',returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
-        except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.\nВозможна бесконечная input()/петля.')
+            popen_kwargs={}
+            if os.name == 'nt':
+                popen_kwargs['creationflags']=getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0)
+            else:
+                popen_kwargs['start_new_session']=True
+            r=subprocess.run(
+                [sys.executable,'-I',str(script)],
+                cwd=work,
+                input=stdin_data,
+                capture_output=True,
+                text=True,
+                timeout=TIMEOUT,
+                env=env,
+                **popen_kwargs
+            )
+            return jsonify(
+                ok=r.returncode==0,
+                kind='python',
+                returncode=r.returncode,
+                output=(r.stdout+r.stderr)[-16000:]
+            )
+        except subprocess.TimeoutExpired:
+            return jsonify(
+                ok=False,
+                kind='python',
+                returncode=-1,
+                error='TIMEOUT',
+                output=(
+                    f'⏱ Превышен лимит выполнения {TIMEOUT} сек.\n'
+                    'Если программа использует input(), укажите все значения во вкладке «Ввод» перед запуском.\n'
+                    'Если это бесконечный цикл, остановите/исправьте цикл.'
+                )
+            )
 
 @app.get('/api/debug/session')
 @auth

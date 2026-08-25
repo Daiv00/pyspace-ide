@@ -4,3 +4,6 @@ PySpace IDE v3.0 ZIP upload fix
 - HTML/proxy/server error responses now produce a readable status/error instead of "Unexpected token <".
 - Same-origin credentials are explicitly sent with the ZIP request.
 - Static asset cache-busting updated to v27.
+
+
+FIX: лимит запуска Python по умолчанию увеличен с 8 до 30 секунд; процесс запускается в отдельной группе, а сообщение таймаута уточнено. Лимит можно изменить через PYSPACE_RUN_TIMEOUT.
