@@ -1,43 +1,47 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#080b12"><title>PySpace IDE</title><link rel="stylesheet" href="/static/style.css?v=27"><script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script></head><body>
-<div id="auth" class="auth"><div class="auth-card"><div class="brand-mark">◈ <b>PySpace</b></div><div class="eyebrow">ONLINE CODE WORKSPACE</div><h1>Пиши. Запускай. Делись.</h1><p class="muted">Python, HTML, CSS и SQL в одном месте.</p><input id="username" autocomplete="username" placeholder="Логин"><input id="password" autocomplete="current-password" type="password" placeholder="Пароль"><div class="auth-actions"><button id="loginBtn" type="button" class="primary">Войти</button><button id="registerBtn" type="button" class="secondary">Создать аккаунт</button></div><div id="msg" class="status"></div></div></div>
-<div id="app" class="hidden"><header class="topbar"><div class="brand"><button id="menuBtn" class="icon-btn mobile-only">☰</button><div class="brand-mark small">◈</div><b>PySpace <span>IDE</span></b></div><div class="head-actions"><span id="who" class="user-pill"></span><button class="top-btn" onclick="localShare()">↗ Обмен</button><button id="admin" class="top-btn" onclick="admin()">Admin</button><button class="top-btn danger" onclick="logout()">Выйти</button></div></header>
-<div class="layout"><aside id="sidebar"><div class="side-title"><span>WORKSPACE</span><button class="icon-btn" onclick="newProject()">＋</button></div><div id="projects"></div><div class="side-title files-title"><span>FILES</span><button class="icon-btn" onclick="newFile()">＋</button></div><div id="files"></div><div class="side-tools">
-<input id="zipUploadInput" type="file" accept=".zip,application/zip" hidden>
-<button class="side-tool zip-tool" id="uploadZipBtn" type="button">▣ Загрузить ZIP</button>
-<button onclick="newFile()">＋ Новый файл</button><button onclick="uploadInput.click()">↑ Загрузить с устройства</button><button onclick="downloadCurrent()">↓ Скачать файл</button><button onclick="downloadZip()">▣ Скачать проект</button><button onclick="renameFile()">Переименовать</button><button onclick="deleteFile()" class="danger-text">Удалить</button><button onclick="share()">👥 Дать доступ</button><button onclick="receivedFiles()">📥 Переданные файлы</button><input id="uploadInput" type="file" multiple hidden></div></aside>
-<main><div class="editorbar"><div class="tab"><span class="dot"></span><span id="tab">main.py</span></div><div class="editor-actions"><select id="langSelect" class="lang"><option value="python">Python</option><option value="html">HTML</option><option value="css">CSS</option><option value="sql">SQL</option><option value="javascript">JavaScript</option><option value="json">JSON</option><option value="plaintext">TXT</option></select><button class="tool-btn" onclick="save()">Сохранить</button><button class="tool-btn" onclick="preview()">Предпросмотр</button><button class="run-btn" onclick="run()">▶ Запустить</button></div></div><div id="editor"></div>
-<div class="console"><div class="console-head"><div><b>ТЕСТОВЫЕ ДАННЫЕ</b><span>stdin • для input()</span></div><button class="clear-btn" onclick="out('')">Очистить вывод</button></div><div class="console-grid"><textarea id="stdin" placeholder="Введите данные для input(), каждое значение с новой строки. Например:\n5\n10"></textarea><div class="output"><div class="output-title">OUTPUT</div><pre id="out">Готово.</pre></div></div></div></main></div></div>
-<div id="modal" class="modal hidden"><div class="modalcard"><button class="close" onclick="hide()">×</button><div id="body"></div></div></div><script src="/static/app.js?v=27"></script>
+
+<!doctype html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PySpace Reminders</title><link rel="stylesheet" href="/static/style.css">
+</head><body>
+<header><div class="logo">◈ <b>PySpace</b><span>REMINDERS</span></div><div id="clock"></div></header>
+<main>
+<section class="hero"><div><div class="kicker">WORKSPACE</div><h1>Напоминания</h1><p>Простое веб-приложение для проверки интерфейса, API, базы данных и сохранения данных.</p></div>
+<button class="add" onclick="openForm()">＋ Новое напоминание</button></section>
+
+<section class="stats"><div><b id="total">0</b><span>всего</span></div><div><b id="active">0</b><span>активных</span></div><div><b id="done">0</b><span>выполнено</span></div></section>
+<section id="list" class="list"></section>
+</main>
+
+<div id="modal" class="modal hidden"><div class="card">
+<button class="close" onclick="closeForm()">×</button><div class="kicker">NEW REMINDER</div><h2>Новое напоминание</h2>
+<label>Название<input id="title" placeholder="Например, проверить PySpace"></label>
+<label>Дата и время<input id="when" type="datetime-local"></label>
+<label>Заметка<textarea id="note" rows="4" placeholder="Дополнительная информация"></textarea></label>
+<button class="add wide" onclick="createReminder()">Создать</button><div id="err"></div>
+</div></div>
 <script>
-(function(){
- const input=document.getElementById('zipUploadInput'),btn=document.getElementById('uploadZipBtn');
- if(!input||!btn)return;
- btn.onclick=()=>input.click();
- input.onchange=async()=>{
-   const file=input.files[0]; if(!file)return;
-   const fd=new FormData();fd.append('file',file);
-   btn.disabled=true;btn.textContent='Создание проекта...';
-   try{
-     const r=await fetch('/api/projects/upload-zip',{method:'POST',body:fd,credentials:'same-origin'});
-     const contentType=(r.headers.get('content-type')||'').toLowerCase();
-     let d;
-     if(contentType.includes('application/json')){
-       d=await r.json();
-     }else{
-       const raw=await r.text();
-       const short=raw.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,500);
-       throw new Error(`Сервер вернул ${r.status} ${r.statusText}, а не JSON${short?': '+short:''}`);
-     }
-     if(!r.ok || d.ok===false)throw new Error(d.error||d.message||`Ошибка загрузки (${r.status})`);
-     window.currentProjectId=d.project_id;window.activeProjectId=d.project_id;
-     alert('✓ '+d.message);
-     if(typeof loadProjects==='function')await loadProjects();
-     if(typeof openProject==='function')await openProject(d.project_id);
-     else if(typeof selectProject==='function')await selectProject(d.project_id);
-     if(typeof loadFiles==='function')await loadFiles(d.project_id);
-   }catch(e){alert('Не удалось загрузить ZIP: '+e.message)}
-   finally{btn.disabled=false;btn.textContent='▣ Загрузить ZIP';input.value=''}
- };
-})();
-</script>
-</body></html>
+const $=x=>document.getElementById(x);
+let items=[];
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function openForm(){ $('modal').classList.remove('hidden'); $('title').focus() }
+function closeForm(){ $('modal').classList.add('hidden'); $('err').textContent='' }
+async function load(){
+ const r=await fetch('/api/reminders'); items=await r.json();
+ $('total').textContent=items.length;$('active').textContent=items.filter(x=>!x.done).length;$('done').textContent=items.filter(x=>x.done).length;
+ $('list').innerHTML=items.length?items.map(x=>`<article class="item ${x.done?'completed':''}">
+ <button class="check" onclick="toggle(${x.id})">${x.done?'✓':''}</button>
+ <div class="body"><h3>${esc(x.title)}</h3><time>${new Date(x.remind_at).toLocaleString('ru-RU')}</time>${x.note?`<p>${esc(x.note)}</p>`:''}</div>
+ <button class="delete" onclick="removeItem(${x.id})">Удалить</button></article>`).join(''):`<div class="empty"><div>◷</div><h2>Пока пусто</h2><p>Создайте первое напоминание.</p></div>`;
+}
+async function createReminder(){
+ const title=$('title').value.trim(), when=$('when').value, note=$('note').value.trim();
+ if(!title||!when){$('err').textContent='Заполните название и дату';return}
+ const r=await fetch('/api/reminders',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,remind_at:when,note})});
+ if(!r.ok){let d=await r.json();$('err').textContent=d.error||'Ошибка';return}
+ $('title').value='';$('note').value='';closeForm();load();
+}
+async function toggle(id){await fetch('/api/reminders/'+id,{method:'PATCH'});load()}
+async function removeItem(id){if(confirm('Удалить напоминание?')){await fetch('/api/reminders/'+id,{method:'DELETE'});load()}}
+function clock(){$('clock').textContent=new Date().toLocaleString('ru-RU',{weekday:'short',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}
+clock();setInterval(clock,30000);load();
+</script></body></html>
