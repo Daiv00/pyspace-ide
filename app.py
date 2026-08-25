@@ -415,13 +415,17 @@ def preview_file(pid,path):
         return jsonify(error=str(e)),400
     if not x.is_file(): return jsonify(error='Файл не найден'),404
     ext=x.suffix.lower()
-    if ext not in ('.html','.htm','.css'):
-        return jsonify(error='Предпросмотр доступен для HTML/CSS'),400
     if ext in ('.html','.htm'):
         # Serve the actual file from the project, so relative CSS/JS/images work.
         return send_file(x, mimetype='text/html; charset=utf-8')
-    return Response(x.read_text(encoding='utf-8',errors='replace'),
-                    mimetype='text/css')
+    if ext=='.css':
+        return Response(x.read_text(encoding='utf-8',errors='replace'),
+                        mimetype='text/css')
+    # Any other asset the previewed page references relatively (JS, images,
+    # fonts, JSON, etc.) — serve it with its guessed mimetype so the page
+    # actually works, not just renders bare markup.
+    mt=mimetypes.guess_type(x.name)[0] or 'application/octet-stream'
+    return send_file(x, mimetype=mt)
 
 @app.delete('/api/projects/<int:pid>/files')
 @auth

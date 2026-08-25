@@ -85,25 +85,113 @@ function out(t){$('out').textContent=t}
 function msg(t){$('msg').textContent=t?.message||String(t||'')}function setBusy(v){$('loginBtn').disabled=v;$('registerBtn').disabled=v}
 async function login(){const username=$('username').value.trim(),password=$('password').value;if(!username||!password)return msg('Введите логин и пароль');setBusy(true);msg('Выполняется вход...');try{start(await api('/api/login',{method:'POST',body:JSON.stringify({username,password})}))}catch(e){msg(e)}finally{setBusy(false)}}
 async function register(){const username=$('username').value.trim(),password=$('password').value;if(!username||!password)return msg('Введите логин и пароль');setBusy(true);msg('Создание аккаунта...');try{const d=await api('/api/register',{method:'POST',body:JSON.stringify({username,password})});msg(d.role==='admin'?'Аккаунт создан как admin. Теперь войдите.':'Аккаунт создан. Теперь нажмите «Войти».')}catch(e){msg(e)}finally{setBusy(false)}}
-function start(m){$('auth').classList.add('hidden');$('app').classList.remove('hidden');$('who').textContent=m.username||'';role=m.role||'user';$('admin').style.display=role==='admin'?'inline-flex':'none';loadProjects().catch(msg)}
+function start(m){$('auth').classList.add('hidden');$('app').classList.remove('hidden');$('who').textContent=m.username||'';role=m.role||'user';$('admin').style.display=role==='admin'?'inline-flex':'none';if(ed&&ed.isFallback)out('⚠ Редактор Monaco не загрузился (проблема с CDN). Включён упрощённый текстовый редактор: открытие/редактирование/сохранение файлов работают, но без подсветки синтаксиса.');loadProjects().catch(msg)}
 async function boot(){try{const m=await api('/api/me');if(m.authenticated)start(m)}catch(e){msg(e)}}
-function initEditor(){if(typeof require==='undefined'){msg('Редактор не загрузился. Обновите страницу.');boot();return}require.config({paths:{vs:'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs'}});require(['vs/editor/editor.main'],()=>{ed=monaco.editor.create($('editor'),{value:'',language:'python',theme:'vs-dark',automaticLayout:true,minimap:{enabled:false},fontSize:14,tabSize:4,wordWrap:'on',padding:{top:12,bottom:12},scrollBeyondLastLine:false});boot()},()=>boot())}
+function createFallbackEditor(){
+  const host=$('editor');
+  host.innerHTML='';
+  const ta=document.createElement('textarea');
+  ta.id='fallbackEditor';
+  ta.spellcheck=false;
+  ta.style.cssText='width:100%;height:100%;box-sizing:border-box;border:0;outline:none;resize:none;background:#1e1e1e;color:#d4d4d4;padding:12px;font:14px/1.5 ui-monospace,Consolas,monospace;tab-size:4;white-space:pre;overflow:auto';
+  host.appendChild(ta);
+  return {isFallback:true,getValue:()=>ta.value,setValue:v=>{ta.value=v??''},getModel:()=>null};
+}
+function initEditor(){
+  if(typeof require==='undefined'){
+    ed=createFallbackEditor();boot();return;
+  }
+  require.config({paths:{vs:'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs'}});
+  require(['vs/editor/editor.main'],()=>{
+    ed=monaco.editor.create($('editor'),{value:'',language:'python',theme:'vs-dark',automaticLayout:true,minimap:{enabled:false},fontSize:14,tabSize:4,wordWrap:'on',padding:{top:12,bottom:12},scrollBeyondLastLine:false});
+    boot();
+  },()=>{ed=createFallbackEditor();boot()});
+}
 async function logout(){try{await api('/api/logout',{method:'POST'})}finally{location.reload()}}
 async function loadProjects(){const ps=await api('/api/projects');$('projects').innerHTML=ps.map(p=>`<div class="project ${project?.id===p.id?'active':''}" data-pid="${p.id}"><span>▸ ${esc(p.name)}</span><small>${esc(p.access)}</small></div>`).join('');$('projects').querySelectorAll('.project').forEach((el,i)=>el.onclick=()=>selectProject(ps[i]));if(!project&&ps[0])await selectProject(ps[0])}
-async function selectProject(p){project=p;file=null;await loadProjects();await loadFiles();closeSidebar()}
+async function selectProject(p){
+  try{
+    project=p;file=null;await loadProjects();await loadFiles();closeSidebar();
+  }catch(e){out('✕ '+e.message)}
+}
 async function loadFiles(){const fs=await api(`/api/projects/${project.id}/files`);$('files').innerHTML=fs.map(f=>`<div class="file ${file?.path===f.path?'active':''}"><span>${fileIcon(f.language)} ${esc(f.path)}</span></div>`).join('');$('files').querySelectorAll('.file').forEach((el,i)=>el.onclick=()=>openFile(fs[i].path));if(!file&&fs[0])await openFile(fs[0].path)}
 function fileIcon(l){return ({python:'🐍',html:'◇',css:'◈',sql:'▤',javascript:'JS',json:'{}',plaintext:'·'})[l]||'·'}
-async function openFile(p){file=await api(`/api/projects/${project.id}/files/${encodeURIComponent(p)}`);if(ed){ed.setValue(file.content);setLanguage(file.language)}$('tab').textContent=file.path;await loadFiles()}
-function setLanguage(l){$('langSelect').value=l;if(ed){monaco.editor.setModelLanguage(ed.getModel(),l)}}
-async function newProject(){let n=prompt('Название проекта');if(!n)return;project=await api('/api/projects',{method:'POST',body:JSON.stringify({name:n})});file=null;await loadProjects();await loadFiles()}
-async function newFile(){if(!project)return alert('Выберите проект');let p=prompt('Путь, например src/utils.py');if(!p)return;await api(`/api/projects/${project.id}/files`,{method:'POST',body:JSON.stringify({path:p,content:''})});await openFile(p)}
-async function save(){if(!project||!file||!ed)return;await api(`/api/projects/${project.id}/files`,{method:'POST',body:JSON.stringify({path:file.path,content:ed.getValue()})});out('✓ Сохранено: '+file.path)}
+async function openFile(p){
+  try{
+    file=await api(`/api/projects/${project.id}/files/${p.split('/').map(encodeURIComponent).join('/')}`);
+    if(ed){ed.setValue(file.content);setLanguage(file.language)}
+    else out('⚠ Редактор не загрузился, но файл открыт: '+file.path);
+    $('tab').textContent=file.path;
+    await loadFiles();
+  }catch(e){
+    out('✕ Не удалось открыть файл: '+e.message);
+  }
+}
+function setLanguage(l){$('langSelect').value=l;if(ed&&!ed.isFallback){monaco.editor.setModelLanguage(ed.getModel(),l)}}
+async function newProject(){
+  let n=prompt('Название проекта');if(!n)return;
+  try{
+    project=await api('/api/projects',{method:'POST',body:JSON.stringify({name:n})});
+    file=null;await loadProjects();await loadFiles();
+  }catch(e){alert('✕ Не удалось создать проект: '+e.message)}
+}
+async function newFile(){
+  if(!project)return alert('Выберите проект');
+  let p=prompt('Путь, например src/utils.py');if(!p)return;
+  try{
+    await api(`/api/projects/${project.id}/files`,{method:'POST',body:JSON.stringify({path:p,content:''})});
+    await openFile(p);
+  }catch(e){alert('✕ Не удалось создать файл: '+e.message)}
+}
+async function save(){
+  if(!project||!file||!ed)return;
+  try{
+    await api(`/api/projects/${project.id}/files`,{method:'POST',body:JSON.stringify({path:file.path,content:ed.getValue()})});
+    out('✓ Сохранено: '+file.path);
+  }catch(e){
+    out('✕ Не удалось сохранить: '+e.message);
+    throw e;
+  }
+}
 async function uploadFiles(list){if(!project||!list.length)return;const fd=new FormData();[...list].forEach(f=>fd.append('files',f));try{const r=await api(`/api/projects/${project.id}/upload`,{method:'POST',body:fd});out('✓ Загружено:\n'+r.files.join('\n'));await loadFiles();if(r.files[0])await openFile(r.files[0])}catch(e){out('✕ '+e.message)}}
-async function downloadCurrent(){if(!project||!file)return;location.href=`/api/projects/${project.id}/download/${encodeURIComponent(file.path)}`}
+async function downloadCurrent(){if(!project||!file)return;location.href=`/api/projects/${project.id}/download/${file.path.split('/').map(encodeURIComponent).join('/')}`}
 async function downloadZip(){if(!project)return;location.href=`/api/projects/${project.id}/download.zip`}
-async function deleteFile(){if(!file||!confirm('Удалить файл?'))return;await api(`/api/projects/${project.id}/files`,{method:'DELETE',body:JSON.stringify({path:file.path})});file=null;await loadFiles()}
-async function renameFile(){if(!file)return;let p=prompt('Новый путь',file.path);if(!p||p===file.path)return;await api(`/api/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({old_path:file.path,new_path:p})});await openFile(p)}
-async function run(stdinOverride){if(!project||!file)return;await save();let stdin=stdinOverride===undefined?$('stdin').value:stdinOverride;const code=ed?ed.getValue():'';if(stdinOverride===undefined && /\binput\s*\(/.test(code) && !stdin.trim()){const entered=await stdinPrompt();if(entered===null)return;stdin=entered;$('stdin').value=entered}out('▶ Выполнение...');try{const d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path,stdin})});out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+(d.output||d.error||''));if(d.kind==='html'||d.kind==='css')preview();if(d.kind==='web'&&d.ok&&d.url)webPreview(d.url,d.token);if(d.kind==='web'&&!d.ok)out('✕ Ошибка запуска веб-приложения\n\n'+(d.error||d.output||''))}catch(e){out('✕ '+e.message)}}
+async function deleteFile(){
+  if(!file||!confirm('Удалить файл?'))return;
+  try{
+    await api(`/api/projects/${project.id}/files`,{method:'DELETE',body:JSON.stringify({path:file.path})});
+    file=null;await loadFiles();
+  }catch(e){alert('✕ Не удалось удалить файл: '+e.message)}
+}
+async function renameFile(){
+  if(!file)return;
+  let p=prompt('Новый путь',file.path);if(!p||p===file.path)return;
+  try{
+    await api(`/api/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({old_path:file.path,new_path:p})});
+    await openFile(p);
+  }catch(e){alert('✕ Не удалось переименовать файл: '+e.message)}
+}
+async function run(stdinOverride){
+  if(!project||!file)return;
+  if(!ed)return out('✕ Редактор не загрузился (проблема с CDN Monaco). Обновите страницу — если не помогает, используйте резервный текстовый редактор, который включается автоматически.');
+  try{
+    await save();
+    let stdin=stdinOverride===undefined?$('stdin').value:stdinOverride;
+    const code=ed.getValue();
+    if(stdinOverride===undefined && /\binput\s*\(/.test(code) && !stdin.trim()){
+      const entered=await stdinPrompt();if(entered===null)return;
+      stdin=entered;$('stdin').value=entered;
+    }
+    out('▶ Выполнение...');
+    const d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path,stdin})});
+    out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+(d.output||d.error||''));
+    if(d.kind==='html'||d.kind==='css')preview();
+    if(d.kind==='web'&&d.ok&&d.url)webPreview(d.url,d.token);
+    if(d.kind==='web'&&!d.ok)out('✕ Ошибка запуска веб-приложения\n\n'+(d.error||d.output||''));
+  }catch(e){
+    out('✕ '+e.message);
+  }
+}
 function webPreview(url,token){modal(`<div class="web-preview-head"><div><div class="eyebrow">LIVE WEB APP</div><h2>Веб-приложение</h2><p class="muted">Работает прямо внутри PySpace. Никакого отдельного Deploy не требуется.</p></div><div style="display:flex;gap:6px"><a class="tool-btn" href="${escAttr(url)}" target="_blank" rel="noopener">Открыть отдельно ↗</a>${token?`<button class="tool-btn danger" onclick="stopWebPreview('${escAttr(token)}')">Остановить</button>`:''}</div></div><iframe class="preview web-live-preview" src="${escAttr(url)}" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>`)}
 async function stopWebPreview(token){
   try{await api(`/api/web-preview/${encodeURIComponent(token)}/stop`,{method:'POST'});hide();out('■ Веб-приложение остановлено')}catch(e){alert('✕ '+e.message)}
@@ -119,8 +207,7 @@ async function preview(){
      modal(`<div class="web-preview-head"><div><div class="eyebrow">HTML PREVIEW</div><h2>${esc(file.path)}</h2></div><a class="tool-btn" href="${escAttr(url)}" target="_blank" rel="noopener">Открыть отдельно ↗</a></div><iframe class="preview web-live-preview" src="${escAttr(url)}"></iframe>`);
      return;
    }
-   const d=await api(`/api/projects/${project.id}/preview/${file.path.split('/').map(encodeURIComponent).join('/')}`);
-   const html=`<!doctype html><html><head><meta charset="utf-8"><style>${d.content}</style></head><body><div class="preview-demo"><h1>PySpace CSS Preview</h1><p>Это предпросмотр CSS.</p><button>Button</button></div></body></html>`;
+   const html=`<!doctype html><html><head><meta charset="utf-8"><style>${ed?ed.getValue():''}</style></head><body><div class="preview-demo"><h1>PySpace CSS Preview</h1><p>Это предпросмотр CSS.</p><button>Button</button></div></body></html>`;
    modal(`<h2>Предпросмотр CSS</h2><iframe class="preview web-live-preview" srcdoc="${escAttr(html)}"></iframe>`);
  }catch(e){
    out('✕ Не удалось открыть предпросмотр: '+e.message);
@@ -173,7 +260,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(modalEl) modalEl.addEventListener('click', e=>{if(e.target===modalEl) hide()});
 
   const langSelect=document.getElementById('langSelect');
-  if(langSelect) langSelect.addEventListener('change', e=>{if(ed) monaco.editor.setModelLanguage(ed.getModel(), e.target.value)});
+  if(langSelect) langSelect.addEventListener('change', e=>{if(ed&&!ed.isFallback) monaco.editor.setModelLanguage(ed.getModel(), e.target.value)});
 
   initEditor();
 });
