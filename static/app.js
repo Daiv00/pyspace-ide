@@ -176,6 +176,21 @@ async function save(){
 async function uploadFiles(list){if(!project||!list.length)return;const fd=new FormData();[...list].forEach(f=>fd.append('files',f));try{const r=await api(`/api/projects/${project.id}/upload`,{method:'POST',body:fd});out('✓ Загружено:\n'+r.files.join('\n'));await loadFiles();if(r.files[0])await openFile(r.files[0])}catch(e){out('✕ '+e.message)}}
 async function downloadCurrent(){if(!project||!file)return;location.href=`/api/projects/${project.id}/download/${file.path.split('/').map(encodeURIComponent).join('/')}`}
 async function downloadZip(){if(!project)return;location.href=`/api/projects/${project.id}/download.zip`}
+async function formatCode(){
+  if(!project||!file)return;
+  if(!ed)return out('✕ Редактор не загрузился, форматирование недоступно.');
+  const language=file.language||$('langSelect').value;
+  if(!['python','html','css','javascript','json'].includes(language))return out('Форматирование доступно для Python, HTML, CSS, JS, JSON.');
+  try{
+    out('🧹 Форматирование...');
+    const d=await api(`/api/projects/${project.id}/format`,{method:'POST',body:JSON.stringify({content:ed.getValue(),language})});
+    ed.setValue(d.content);
+    await save();
+    out('✓ Отформатировано и сохранено: '+file.path);
+  }catch(e){
+    out('✕ Не удалось отформатировать: '+e.message);
+  }
+}
 async function deleteFile(){
   if(!file||!confirm('Удалить файл?'))return;
   try{

@@ -9,6 +9,8 @@ from pathlib import Path
 from functools import wraps
 from flask import Flask,request,jsonify,session,render_template,send_file,Response
 from werkzeug.security import generate_password_hash,check_password_hash
+import autopep8
+import jsbeautifier
 
 BASE=Path(__file__).resolve().parent
 DATA_ROOT=Path(os.getenv('PYSPACE_DATA_DIR', str(BASE))).resolve()
@@ -394,6 +396,34 @@ def savefile(pid):
     except ValueError as e:return jsonify(error=str(e)),400
     if len(content.encode())>2*1024*1024:return jsonify(error='Файл слишком большой'),413
     x.parent.mkdir(parents=True,exist_ok=True); x.write_text(content,encoding='utf-8'); return jsonify(ok=True)
+
+@app.post('/api/projects/<int:pid>/format')
+@auth
+def format_code(pid):
+    if not access(pid,True):return jsonify(error='Нет прав'),403
+    d=request.get_json() or {}
+    content=str(d.get('content',''))
+    lang=str(d.get('language','')).lower()
+    if len(content.encode())>2*1024*1024:return jsonify(error='Файл слишком большой'),413
+    try:
+        if lang=='python':
+            # Расставляет отступы по структуре кода (не просто меняет табы на пробелы),
+            # чинит смешанные табы/пробелы, убирает пробелы в конце строк.
+            formatted=autopep8.fix_code(content,options={'aggressive':1})
+        elif lang in ('html','css','javascript','json'):
+            opts=jsbeautifier.default_options()
+            opts.indent_size=2
+            opts.indent_with_tabs=False
+            opts.end_with_newline=True
+            if lang=='css':
+                formatted=jsbeautifier.beautify_css(content,opts)
+            else:
+                formatted=jsbeautifier.beautify(content,opts)
+        else:
+            return jsonify(error='Форматирование недоступно для этого типа файла'),400
+    except Exception as e:
+        return jsonify(error=f'Не удалось отформатировать: {e}'),400
+    return jsonify(ok=True,content=formatted)
 
 @app.post('/api/projects/<int:pid>/upload')
 @auth
