@@ -391,6 +391,53 @@ def local_share_upload(token):
     meta.write_text(__import__('json').dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     return jsonify(ok=True,files=saved,errors=errors,message=f'Сохранено: {len(saved)}')
 
+
+def safe_extract_zip(zip_path, destination):
+    destination=Path(destination).resolve()
+    extracted=[]
+    with zipfile.ZipFile(zip_path,'r') as z:
+        for info in z.infolist():
+            name=info.filename.replace('\\','/')
+            parts=[p for p in name.split('/') if p not in ('','.')]
+            if not parts or any(p=='..' for p in parts):
+                continue
+            target=(destination.joinpath(*parts)).resolve()
+            if target != destination and destination not in target.parents:
+                continue
+            if info.is_dir():
+                target.mkdir(parents=True,exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True,exist_ok=True)
+            with z.open(info) as srcf, open(target,'wb') as dstf:
+                shutil.copyfileobj(srcf,dstf)
+            extracted.append('/'.join(parts))
+    return extracted
+
+@app.post('/api/projects/<int:project_id>/upload-zip')
+def upload_project_zip(project_id):
+    if not user():
+        return jsonify(ok=False,error='Требуется вход'),401
+    f=request.files.get('file')
+    if not f or not f.filename.lower().endswith('.zip'):
+        return jsonify(ok=False,error='Нужен ZIP-файл'),400
+    # Find the project directory using the existing project model/table.
+    c=db()
+    row=c.execute('SELECT * FROM projects WHERE id=? AND owner_id=?',(project_id,user()['id'])).fetchone()
+    c.close()
+    if not row:
+        return jsonify(ok=False,error='Проект не найден'),404
+    project_path=Path(project_dir(project_id))
+    project_path.mkdir(parents=True,exist_ok=True)
+    tmp=project_path/'.upload.zip'
+    f.save(tmp)
+    try:
+        files=safe_extract_zip(tmp,project_path)
+    except zipfile.BadZipFile:
+        tmp.unlink(missing_ok=True)
+        return jsonify(ok=False,error='Файл повреждён или это не ZIP'),400
+    finally:
+        tmp.unlink(missing_ok=True)
+    return jsonify(ok=True,files=files,count=len(files),message=f'Распаковано файлов: {len(files)}')
 @app.get('/api/received-files')
 @auth
 def received_files():

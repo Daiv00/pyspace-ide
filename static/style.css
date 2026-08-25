@@ -7,3 +7,5 @@
 .selected-list{display:grid;gap:6px;margin:10px 0}.selected-file{display:flex;justify-content:space-between;align-items:center;padding:9px 11px;background:#0a0e15;border:1px solid var(--line);border-radius:9px}.selected-file button{border:0;background:transparent;color:#8893a5;font-size:18px}.selected-file small,.share-file small{color:#6e7a8e;margin-left:6px}
 .share-section{margin-top:18px}.section-label{font-size:10px;font-weight:700;letter-spacing:.14em;color:#778397;margin-bottom:7px}.text-row{display:grid;grid-template-columns:1fr auto;gap:7px}.text-row input{min-width:0}.send-main{width:100%;margin-top:12px}.error{color:#ff8a96}
 @media(max-width:600px){.text-row{grid-template-columns:1fr}.share-card{padding:18px 13px}.drop{padding:22px 12px}}
+
+.zip-tool{width:100%;padding:9px 10px;border-radius:9px;background:#101620;border:1px solid #202a39;color:#aeb8c7;text-align:left}.zip-tool:hover{background:#171f2d;color:#fff}

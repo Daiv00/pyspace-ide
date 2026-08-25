@@ -66,3 +66,7 @@ Fixed remote file/text transfer with a robust upload page, explicit selected-fil
 
 ## v2.4
 QR generation moved server-side: the server generates a PNG with the exact short share URL. Added qrcode dependency and direct QR endpoint. This removes browser QR-library failures.
+
+
+## v2.5 ZIP upload
+Projects can now accept a `.zip` upload directly from the UI. The server safely extracts the archive into the selected project and blocks path traversal entries such as `../`. Existing files are kept unless the ZIP contains the same path, in which case the uploaded file replaces it.
