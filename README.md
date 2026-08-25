@@ -16,3 +16,7 @@ Dockerfile уже настроен на Gunicorn и порт `8080`.
 
 ## v1.5
 Reliable Admin/Exchange controls and an interactive input() dialog.
+
+
+## v1.7
+Fixed the modal null-reference that broke Admin and Exchange dialogs; admin role is refreshed from the server before opening the panel.

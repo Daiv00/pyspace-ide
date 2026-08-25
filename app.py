@@ -376,6 +376,13 @@ def run():
             return jsonify(ok=r.returncode==0,kind='python',returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
         except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.\nВозможна бесконечная input()/петля.')
 
+@app.get('/api/debug/session')
+@auth
+def debug_session():
+    u=user()
+    return jsonify(authenticated=True,username=u['username'],role=u['role'],admin_configured=bool(os.getenv('PYSPACE_ADMIN_USER','').strip()))
+
+
 @app.get('/admin')
 def admin_page():
     u=user()
