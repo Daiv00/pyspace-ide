@@ -413,31 +413,40 @@ def safe_extract_zip(zip_path, destination):
             extracted.append('/'.join(parts))
     return extracted
 
+@app.post('/api/projects/upload-zip')
+def upload_project_zip_auto():
+    if not user(): return jsonify(ok=False,error='Требуется вход'),401
+    f=request.files.get('file')
+    if not f or not f.filename.lower().endswith('.zip'): return jsonify(ok=False,error='Нужен ZIP-файл'),400
+    base=re.sub(r'[^\wА-Яа-яЁё ._-]+','_',Path(f.filename).stem).strip(' ._')[:80] or 'Новый проект'
+    name=base; n=2; c=db()
+    while c.execute('SELECT 1 FROM projects WHERE owner_id=? AND name=?',(user()['id'],name)).fetchone():
+        name=f'{base} ({n})'; n+=1
+    cur=c.execute('INSERT INTO projects(owner_id,name) VALUES(?,?)',(user()['id'],name))
+    pid=cur.lastrowid; c.commit(); c.close()
+    p=Path(project_dir(pid)); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'; f.save(tmp)
+    try: files=safe_extract_zip(tmp,p)
+    except zipfile.BadZipFile:
+        tmp.unlink(missing_ok=True); c=db(); c.execute('DELETE FROM projects WHERE id=?',(pid,)); c.commit(); c.close()
+        return jsonify(ok=False,error='Файл повреждён или это не ZIP'),400
+    finally: tmp.unlink(missing_ok=True)
+    return jsonify(ok=True,project_id=pid,project_name=name,files=files,count=len(files),
+                    message=f'Проект «{name}» создан. Распаковано файлов: {len(files)}')
+
 @app.post('/api/projects/<int:project_id>/upload-zip')
 def upload_project_zip(project_id):
-    if not user():
-        return jsonify(ok=False,error='Требуется вход'),401
+    if not user(): return jsonify(ok=False,error='Требуется вход'),401
     f=request.files.get('file')
-    if not f or not f.filename.lower().endswith('.zip'):
-        return jsonify(ok=False,error='Нужен ZIP-файл'),400
-    # Find the project directory using the existing project model/table.
-    c=db()
-    row=c.execute('SELECT * FROM projects WHERE id=? AND owner_id=?',(project_id,user()['id'])).fetchone()
-    c.close()
-    if not row:
-        return jsonify(ok=False,error='Проект не найден'),404
-    project_path=Path(project_dir(project_id))
-    project_path.mkdir(parents=True,exist_ok=True)
-    tmp=project_path/'.upload.zip'
-    f.save(tmp)
-    try:
-        files=safe_extract_zip(tmp,project_path)
-    except zipfile.BadZipFile:
-        tmp.unlink(missing_ok=True)
-        return jsonify(ok=False,error='Файл повреждён или это не ZIP'),400
-    finally:
-        tmp.unlink(missing_ok=True)
-    return jsonify(ok=True,files=files,count=len(files),message=f'Распаковано файлов: {len(files)}')
+    if not f or not f.filename.lower().endswith('.zip'): return jsonify(ok=False,error='Нужен ZIP-файл'),400
+    c=db(); row=c.execute('SELECT * FROM projects WHERE id=? AND owner_id=?',(project_id,user()['id'])).fetchone(); c.close()
+    if not row: return jsonify(ok=False,error='Проект не найден'),404
+    p=Path(project_dir(project_id)); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'; f.save(tmp)
+    try: files=safe_extract_zip(tmp,p)
+    except zipfile.BadZipFile: return jsonify(ok=False,error='Файл повреждён или это не ZIP'),400
+    finally: tmp.unlink(missing_ok=True)
+    return jsonify(ok=True,project_id=project_id,project_name=row['name'],files=files,count=len(files),
+                    message=f'Распаковано файлов: {len(files)}')
+
 @app.get('/api/received-files')
 @auth
 def received_files():
