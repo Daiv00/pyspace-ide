@@ -272,13 +272,20 @@ def server():
 @app.post('/api/local-share')
 @auth
 def create_local_share():
-    token=secrets.token_urlsafe(24).replace('-','_').replace('~','_')
-    c=db(); c.execute('INSERT INTO local_shares(owner_id,token) VALUES(?,?)',(user()['id'],token)); c.commit(); c.close()
+    alphabet=string.ascii_letters+string.digits
+    while True:
+        token=''.join(secrets.choice(alphabet) for _ in range(7))
+        c=db()
+        exists=c.execute('SELECT 1 FROM local_shares WHERE token=?',(token,)).fetchone()
+        if not exists:
+            c.execute('INSERT INTO local_shares(owner_id,token) VALUES(?,?)',(user()['id'],token)); c.commit(); c.close()
+            break
+        c.close()
     share_dir(token).mkdir(parents=True,exist_ok=True)
     local_mode=not bool(request.headers.get('X-Forwarded-Host') or request.headers.get('X-Forwarded-Proto'))
     base=request.host_url.rstrip('/')
-    primary=base+f'/share/{token}'
-    urls=[f'http://{x}:{PORT}/share/{token}' for x in lan_ips()] if local_mode else []
+    primary=base+f'/s/{token}'
+    urls=[f'http://{x}:{PORT}/s/{token}' for x in lan_ips()] if local_mode else []
     return jsonify(token=token,urls=urls,cloud_url=primary,share_url=primary,local_mode=local_mode,port=PORT)
 
 @app.post('/api/quick-share')
@@ -328,12 +335,18 @@ def local_share_qr(token):
     if not r:return jsonify(error='Ссылка недействительна'),404
     try:
         import qrcode
-        url=request.host_url.rstrip('/')+f'/share/{token}'
+        url=request.host_url.rstrip('/')+f'/s/{token}'
         img=qrcode.make(url)
         mem=io.BytesIO(); img.save(mem,format='PNG'); mem.seek(0)
         return send_file(mem,mimetype='image/png')
     except Exception as e:
         return jsonify(error=str(e)),500
+
+@app.get('/s/<token>')
+def short_share(token):
+    if not share_row(token):
+        return render_template('share.html',error='Ссылка недействительна или закрыта'),404
+    return __import__('flask').redirect(f'/share/{token}')
 
 @app.get('/share/<token>')
 def share_page(token):

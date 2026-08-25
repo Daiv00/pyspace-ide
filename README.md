@@ -26,3 +26,10 @@ Fixed the modal null-reference that broke Admin and Exchange dialogs; admin role
 - One-click QR room for sending files/text to PySpace.
 - Redesigned dashboard/workspace interface for future tools.
 - QR link and PNG download.
+
+
+## v1.9
+- Fixed QR generator: quickQR is now async.
+- Short share links use `/s/XXXXXXX` with 7-character base62 tokens.
+- Added short redirect route for easier manual entry.
+- Refreshed the main UI with a cleaner product/workspace layout.
