@@ -784,16 +784,27 @@ def run():
     )
     is_web = any(marker in source for marker in web_markers)
     if is_web:
-        return jsonify(
-            ok=True,
-            kind='web',
-            output=(
-                '🌐 Обнаружено веб-приложение. Оно не запускается как консольная программа, '
-                'потому что веб-сервер работает постоянно и раньше ошибочно приводил к таймауту.\n\n'
-                'Для проверки используйте веб-просмотр/Deploy. '
-                'Если это Flask-приложение, сервер запускается через Gunicorn в Render.'
+        try:
+            token, port = _start_web_preview(pid, path)
+            return jsonify(
+                ok=True,
+                kind='web',
+                token=token,
+                url=f'/web-preview/{token}/',
+                output=(
+                    '🌐 Веб-приложение запущено и открыто в живом предпросмотре ниже.\n'
+                    'Сервер продолжает работать в фоне, пока вы не закроете предпросмотр '
+                    'или не запустите файл заново.'
+                )
             )
-        )
+        except PermissionError as e:
+            return jsonify(ok=False, kind='web', error=str(e)), 403
+        except (ValueError, FileNotFoundError) as e:
+            # e.g. not actually a Flask app (FastAPI/uvicorn/http.server aren't
+            # supported by this live-preview launcher).
+            return jsonify(ok=False, kind='web', error=str(e), output=str(e))
+        except RuntimeError as e:
+            return jsonify(ok=False, kind='web', error=str(e), output=str(e))
 
     with tempfile.TemporaryDirectory(prefix='pyspace_') as td:
         work=Path(td)/'project'; shutil.copytree(pdir(pid),work); script=work/path

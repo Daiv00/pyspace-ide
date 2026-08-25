@@ -103,21 +103,28 @@ async function downloadCurrent(){if(!project||!file)return;location.href=`/api/p
 async function downloadZip(){if(!project)return;location.href=`/api/projects/${project.id}/download.zip`}
 async function deleteFile(){if(!file||!confirm('Удалить файл?'))return;await api(`/api/projects/${project.id}/files`,{method:'DELETE',body:JSON.stringify({path:file.path})});file=null;await loadFiles()}
 async function renameFile(){if(!file)return;let p=prompt('Новый путь',file.path);if(!p||p===file.path)return;await api(`/api/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({old_path:file.path,new_path:p})});await openFile(p)}
-async function run(stdinOverride){if(!project||!file)return;await save();let stdin=stdinOverride===undefined?$('stdin').value:stdinOverride;const code=ed?ed.getValue():'';if(stdinOverride===undefined && /\binput\s*\(/.test(code) && !stdin.trim()){const entered=await stdinPrompt();if(entered===null)return;stdin=entered;$('stdin').value=entered}out('▶ Выполнение...');try{const d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path,stdin})});out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+(d.output||d.error||''));if(d.kind==='html'||d.kind==='css')preview();if(d.kind==='web'&&d.ok&&d.url)webPreview(d.url);if(d.kind==='web'&&!d.ok)out('✕ Ошибка запуска веб-приложения\n\n'+(d.error||d.output||''))}catch(e){out('✕ '+e.message)}}
-function webPreview(url){modal(`<div class="web-preview-head"><div><div class="eyebrow">LIVE WEB APP</div><h2>Веб-приложение</h2><p class="muted">Работает прямо внутри PySpace. Никакого отдельного Deploy не требуется.</p></div><a class="tool-btn" href="${escAttr(url)}" target="_blank" rel="noopener">Открыть отдельно ↗</a></div><iframe class="preview web-live-preview" src="${escAttr(url)}" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>`)}
+async function run(stdinOverride){if(!project||!file)return;await save();let stdin=stdinOverride===undefined?$('stdin').value:stdinOverride;const code=ed?ed.getValue():'';if(stdinOverride===undefined && /\binput\s*\(/.test(code) && !stdin.trim()){const entered=await stdinPrompt();if(entered===null)return;stdin=entered;$('stdin').value=entered}out('▶ Выполнение...');try{const d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path,stdin})});out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+(d.output||d.error||''));if(d.kind==='html'||d.kind==='css')preview();if(d.kind==='web'&&d.ok&&d.url)webPreview(d.url,d.token);if(d.kind==='web'&&!d.ok)out('✕ Ошибка запуска веб-приложения\n\n'+(d.error||d.output||''))}catch(e){out('✕ '+e.message)}}
+function webPreview(url,token){modal(`<div class="web-preview-head"><div><div class="eyebrow">LIVE WEB APP</div><h2>Веб-приложение</h2><p class="muted">Работает прямо внутри PySpace. Никакого отдельного Deploy не требуется.</p></div><div style="display:flex;gap:6px"><a class="tool-btn" href="${escAttr(url)}" target="_blank" rel="noopener">Открыть отдельно ↗</a>${token?`<button class="tool-btn danger" onclick="stopWebPreview('${escAttr(token)}')">Остановить</button>`:''}</div></div><iframe class="preview web-live-preview" src="${escAttr(url)}" sandbox="allow-scripts allow-forms allow-same-origin"></iframe>`)}
+async function stopWebPreview(token){
+  try{await api(`/api/web-preview/${encodeURIComponent(token)}/stop`,{method:'POST'});hide();out('■ Веб-приложение остановлено')}catch(e){alert('✕ '+e.message)}
+}
 async function preview(){
  if(!project||!file)return;
  const ext=file.path.toLowerCase().split('.').pop();
  if(!['html','htm','css'].includes(ext))return out('Предпросмотр доступен для HTML/CSS.');
- await save();
- if(ext==='html'||ext==='htm'){
-   const url=`/api/projects/${project.id}/preview/${file.path.split('/').map(encodeURIComponent).join('/')}`;
-   modal(`<div class="web-preview-head"><div><div class="eyebrow">HTML PREVIEW</div><h2>${esc(file.path)}</h2></div><a class="tool-btn" href="${escAttr(url)}" target="_blank" rel="noopener">Открыть отдельно ↗</a></div><iframe class="preview web-live-preview" src="${escAttr(url)}"></iframe>`);
-   return;
+ try{
+   await save();
+   if(ext==='html'||ext==='htm'){
+     const url=`/api/projects/${project.id}/preview/${file.path.split('/').map(encodeURIComponent).join('/')}`;
+     modal(`<div class="web-preview-head"><div><div class="eyebrow">HTML PREVIEW</div><h2>${esc(file.path)}</h2></div><a class="tool-btn" href="${escAttr(url)}" target="_blank" rel="noopener">Открыть отдельно ↗</a></div><iframe class="preview web-live-preview" src="${escAttr(url)}"></iframe>`);
+     return;
+   }
+   const d=await api(`/api/projects/${project.id}/preview/${file.path.split('/').map(encodeURIComponent).join('/')}`);
+   const html=`<!doctype html><html><head><meta charset="utf-8"><style>${d.content}</style></head><body><div class="preview-demo"><h1>PySpace CSS Preview</h1><p>Это предпросмотр CSS.</p><button>Button</button></div></body></html>`;
+   modal(`<h2>Предпросмотр CSS</h2><iframe class="preview web-live-preview" srcdoc="${escAttr(html)}"></iframe>`);
+ }catch(e){
+   out('✕ Не удалось открыть предпросмотр: '+e.message);
  }
- const d=await api(`/api/projects/${project.id}/preview/${file.path.split('/').map(encodeURIComponent).join('/')}`);
- const html=`<!doctype html><html><head><meta charset="utf-8"><style>${d.content}</style></head><body><div class="preview-demo"><h1>PySpace CSS Preview</h1><p>Это предпросмотр CSS.</p><button>Button</button></div></body></html>`;
- modal(`<h2>Предпросмотр CSS</h2><iframe class="preview web-live-preview" srcdoc="${escAttr(html)}"></iframe>`);
 }
 const stdinStyle=document.createElement("style");
 stdinStyle.textContent=`#stdinModal{position:fixed;inset:0;z-index:99999;display:grid;place-items:center}.stdin-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.76);backdrop-filter:blur(6px)}.stdin-dialog{position:relative;width:min(560px,calc(100vw - 24px));box-sizing:border-box;background:#151a25;border:1px solid #343c4e;border-radius:18px;padding:20px;box-shadow:0 25px 90px rgba(0,0,0,.6);color:#f4f6fb}.stdin-title{font-size:20px;font-weight:750;margin-bottom:7px}.stdin-sub{font-size:13px;color:#aeb7c8;line-height:1.45;margin-bottom:14px}#stdinPromptValue{width:100%;box-sizing:border-box;background:#0b1018;color:#f4f6fb;border:1px solid #3a4355;border-radius:12px;padding:12px;font:14px ui-monospace,Consolas,monospace;resize:vertical}.stdin-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}.stdin-actions button{border:0;border-radius:10px;padding:10px 16px;cursor:pointer;background:#2b3342;color:#fff}.stdin-actions #stdinRun{background:#705df5}`;
