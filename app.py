@@ -7,7 +7,7 @@ import os,re,sqlite3,secrets,socket,string,subprocess,sys,tempfile,shutil,zipfil
 import threading, time, http.client, mimetypes
 from pathlib import Path
 from functools import wraps
-from flask import Flask,request,jsonify,session,render_template,send_file
+from flask import Flask,request,jsonify,session,render_template,send_file,Response
 from werkzeug.security import generate_password_hash,check_password_hash
 
 BASE=Path(__file__).resolve().parent
@@ -126,6 +126,12 @@ def _web_preview_cleaner():
                 _stop_web_preview(token)
 
 threading.Thread(target=_web_preview_cleaner, daemon=True).start()
+
+def _free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        return s.getsockname()[1]
 
 def _start_web_preview(pid, path):
     if not access(pid):
