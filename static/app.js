@@ -134,21 +134,24 @@ window.addEventListener('DOMContentLoaded',()=>{$('loginBtn').addEventListener('
 
 async function quickQR(){
   try{
-    const d=await api('/api/quick-share',{method:'POST'});
+    const d=await api('/api/local-share',{method:'POST'});
     const url=d.share_url||d.cloud_url||(d.urls&&d.urls[0]);
-    if(!url) throw new Error('Не удалось создать ссылку');
+    if(!url || !d.token) throw new Error('Сервер не вернул ссылку обмена');
+    const qrUrl='/api/local-share/'+encodeURIComponent(d.token)+'/qr';
     modal(`
       <div class="qr-modal">
-        <div class="qr-kicker">БЫСТРЫЙ ОБМЕН</div>
-        <h2>Отправить файл на PySpace</h2>
-        <p class="muted">Покажи этот QR-код другому человеку. После сканирования откроется страница, где можно отправить файлы или текст в это хранилище.</p>
-        <div class="qr-frame"><img src="/api/local-share/${encodeURIComponent(d.token)}/qr" alt="QR-код для обмена"></div>
+        <div class="qr-kicker">QUICK SHARE</div>
+        <h2>Отправить файл</h2>
+        <p class="muted">Отсканируйте QR-код камерой телефона.</p>
+        <div class="qr-frame"><img src="${qrUrl}" alt="QR-код" onerror="this.parentElement.innerHTML='<div style="color:#c55">Не удалось загрузить QR</div>'"></div>
         <div class="qr-url">${esc(url)}</div>
         <div class="qr-actions">
-          <button class="tool-btn" onclick="copyText('${escAttr(url)}')">Копировать ссылку</button>
-          <a class="tool-btn" href="/api/local-share/${encodeURIComponent(d.token)}/qr" download="pyspace-share-qr.png">Скачать QR</a>
+          <button class="primary" onclick="copyText('${escAttr(url)}')">Копировать ссылку</button>
+          <a class="secondary" href="${qrUrl}" target="_blank" rel="noopener">Открыть QR</a>
         </div>
-        <div class="qr-note">Ссылка ведёт только в созданную комнату обмена.</div>
+        <div class="qr-note">Ссылка короткая и ведёт прямо на страницу отправки файлов.</div>
       </div>`);
-  }catch(e){alert('QR: '+e.message)}
+  }catch(e){
+    alert('Не удалось создать QR-код: '+e.message);
+  }
 }

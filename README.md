@@ -62,3 +62,7 @@ Fixed the modal null-reference that broke Admin and Exchange dialogs; admin role
 
 ## v2.3
 Fixed remote file/text transfer with a robust upload page, explicit selected-file list, drag/drop, text-only sending, immediate refresh, broader safe filenames, 100MB request limit, and persistent received-file records.
+
+
+## v2.4
+QR generation moved server-side: the server generates a PNG with the exact short share URL. Added qrcode dependency and direct QR endpoint. This removes browser QR-library failures.
