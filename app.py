@@ -4,6 +4,7 @@ import zipfile
 import shutil
 from werkzeug.exceptions import RequestEntityTooLarge
 import os,re,sqlite3,secrets,socket,string,subprocess,sys,tempfile,shutil,zipfile,io,base64,datetime
+import threading, time, http.client, mimetypes
 from pathlib import Path
 from functools import wraps
 from flask import Flask,request,jsonify,session,render_template,send_file
@@ -94,6 +95,155 @@ def clean(p):
     return '/'.join(safe)
 
 def pdir(pid): return STORAGE/f'project_{pid}'
+
+# Live web previews. Each preview runs inside this same PySpace instance and is
+# reverse-proxied through /web-preview/<token>/..., so users do not need Render
+# or another external deployment to see their project.
+WEB_PREVIEWS = {}
+WEB_PREVIEWS_LOCK = threading.Lock()
+WEB_PREVIEW_TTL = int(os.getenv('PYSPACE_WEB_PREVIEW_TTL', '1800'))
+WEB_PREVIEW_STARTUP = float(os.getenv('PYSPACE_WEB_PREVIEW_STARTUP', '8'))
+
+def _stop_web_preview(token):
+    with WEB_PREVIEWS_LOCK:
+        item = WEB_PREVIEWS.pop(token, None)
+    if item:
+        try:
+            item['proc'].terminate()
+            item['proc'].wait(timeout=3)
+        except Exception:
+            try: item['proc'].kill()
+            except Exception: pass
+
+def _web_preview_cleaner():
+    while True:
+        time.sleep(30)
+        now = time.time()
+        with WEB_PREVIEWS_LOCK:
+            items = list(WEB_PREVIEWS.items())
+        for token, item in items:
+            if item['proc'].poll() is not None or now - item['last'] > WEB_PREVIEW_TTL:
+                _stop_web_preview(token)
+
+threading.Thread(target=_web_preview_cleaner, daemon=True).start()
+
+def _start_web_preview(pid, path):
+    if not access(pid):
+        raise PermissionError('Нет доступа')
+    project = pdir(pid).resolve()
+    script = fpath(pid, path)
+    if not script.is_file():
+        raise FileNotFoundError('Файл не найден')
+
+    # Only Python web applications are started here. HTML/CSS are handled by
+    # the existing sandboxed preview.
+    source = script.read_text(encoding='utf-8', errors='replace')
+    flask_like = ('from flask import' in source or 'import flask' in source or
+                  'Flask(' in source or 'app.run(' in source)
+    if not flask_like:
+        raise ValueError('Не удалось определить Flask-приложение. Для HTML используйте «Предпросмотр».')
+
+    # Reuse a live preview for the same project/file.
+    with WEB_PREVIEWS_LOCK:
+        for token, item in WEB_PREVIEWS.items():
+            if item['pid'] == pid and item['path'] == path and item['proc'].poll() is None:
+                item['last'] = time.time()
+                return token, item['port']
+
+    port = _free_port()
+    env = os.environ.copy()
+    env.update({
+        'PORT': str(port),
+        'PYTHONUNBUFFERED': '1',
+        'PYTHONDONTWRITEBYTECODE': '1',
+    })
+    # Gunicorn is already part of PySpace's production dependencies.
+    cmd = [sys.executable, '-m', 'gunicorn',
+           '--bind', f'127.0.0.1:{port}',
+           '--workers', '1',
+           '--timeout', '120',
+           '--access-logfile', '-',
+           '--error-logfile', '-',
+           f'{Path(path).with_suffix("").as_posix().replace("/", ".")}:app']
+
+    proc = subprocess.Popen(
+        cmd, cwd=project, env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=(os.name != 'nt')
+    )
+    token = secrets.token_urlsafe(24)
+    item = {'pid': pid, 'path': path, 'port': port, 'proc': proc, 'last': time.time()}
+    with WEB_PREVIEWS_LOCK:
+        WEB_PREVIEWS[token] = item
+
+    deadline = time.time() + WEB_PREVIEW_STARTUP
+    ready = False
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            break
+        try:
+            c = http.client.HTTPConnection('127.0.0.1', port, timeout=0.4)
+            c.request('GET', '/')
+            r = c.getresponse()
+            r.read(64)
+            c.close()
+            ready = True
+            break
+        except Exception:
+            time.sleep(0.12)
+    if not ready:
+        _stop_web_preview(token)
+        raise RuntimeError('Не удалось запустить веб-приложение. Проверьте app.py и зависимости проекта.')
+
+    return token, port
+
+def _proxy_web_preview(token, subpath):
+    with WEB_PREVIEWS_LOCK:
+        item = WEB_PREVIEWS.get(token)
+        if not item:
+            return None
+        if item['proc'].poll() is not None:
+            WEB_PREVIEWS.pop(token, None)
+            return None
+        item['last'] = time.time()
+        port = item['port']
+
+    target_path = '/' + (subpath or '')
+    if request.query_string:
+        target_path += '?' + request.query_string.decode('utf-8', 'replace')
+    body = request.get_data()
+    headers = {}
+    for k, v in request.headers.items():
+        lk = k.lower()
+        if lk in ('host', 'content-length', 'connection'):
+            continue
+        if lk in ('cookie', 'content-type', 'authorization', 'accept', 'user-agent'):
+            headers[k] = v
+    headers['Host'] = f'127.0.0.1:{port}'
+    headers['X-Forwarded-Proto'] = request.scheme
+    headers['X-Forwarded-Host'] = request.host
+
+    try:
+        conn = http.client.HTTPConnection('127.0.0.1', port, timeout=30)
+        conn.request(request.method, target_path, body=body or None, headers=headers)
+        upstream = conn.getresponse()
+        data = upstream.read()
+        out_headers = []
+        for k, v in upstream.getheaders():
+            lk = k.lower()
+            if lk in ('connection', 'transfer-encoding', 'content-length', 'server', 'date'):
+                continue
+            if lk == 'location' and v.startswith('/'):
+                v = f'/web-preview/{token}{v}'
+            out_headers.append((k, v))
+        out_headers.append(('Cache-Control', 'no-store'))
+        return Response(data, status=upstream.status, headers=out_headers)
+    except Exception as e:
+        return jsonify(error='Веб-приложение остановилось или не отвечает', detail=str(e)), 502
+    finally:
+        try: conn.close()
+        except Exception: pass
+
 
 def fpath(pid,p):
     p=clean(p); base=pdir(pid).resolve(); x=(base/p).resolve()
@@ -540,6 +690,39 @@ def revoke_local_share(token):
     if not r:return jsonify(error='Ссылка не найдена'),404
     if r['owner_id']!=user()['id']:return jsonify(error='Только владелец'),403
     c=db(); c.execute('UPDATE local_shares SET active=0 WHERE token=?',(token,)); c.commit(); c.close(); return jsonify(ok=True)
+
+
+@app.post('/api/web-preview/start')
+@auth
+def start_web_preview():
+    d = request.get_json() or {}
+    pid = int(d.get('project_id') or 0)
+    path = clean(d.get('path') or 'app.py')
+    try:
+        token, port = _start_web_preview(pid, path)
+        return jsonify(ok=True, kind='web', token=token,
+                       url=f'/web-preview/{token}/')
+    except PermissionError as e:
+        return jsonify(error=str(e)), 403
+    except (ValueError, FileNotFoundError, RuntimeError) as e:
+        return jsonify(error=str(e)), 400
+
+@app.post('/api/web-preview/<token>/stop')
+@auth
+def stop_web_preview(token):
+    with WEB_PREVIEWS_LOCK:
+        item = WEB_PREVIEWS.get(token)
+    if not item or not access(item['pid']):
+        return jsonify(error='Предпросмотр не найден'), 404
+    _stop_web_preview(token)
+    return jsonify(ok=True)
+
+@app.route('/web-preview/<token>/', defaults={'subpath': ''},
+             methods=['GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD'])
+@app.route('/web-preview/<token>/<path:subpath>',
+           methods=['GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD'])
+def web_preview(token, subpath):
+    return _proxy_web_preview(token, subpath) or (jsonify(error='Предпросмотр не найден'), 404)
 
 @app.post('/api/run')
 @auth
