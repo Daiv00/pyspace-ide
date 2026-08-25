@@ -65,3 +65,14 @@ async function quickQR(){
     alert('Не удалось создать QR-код: '+e.message);
   }
 }
+
+
+document.addEventListener('DOMContentLoaded',()=>{
+  const loginBtn=document.getElementById('loginBtn');
+  const registerBtn=document.getElementById('registerBtn');
+  if(loginBtn) loginBtn.addEventListener('click', login);
+  if(registerBtn) registerBtn.addEventListener('click', register);
+  const password=document.getElementById('password');
+  if(password) password.addEventListener('keydown', e=>{if(e.key==='Enter') login()});
+  initEditor();
+});
