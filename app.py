@@ -1,4 +1,4 @@
-import os,re,sqlite3,secrets,socket,subprocess,sys,tempfile,shutil,zipfile,io,base64,datetime
+import os,re,sqlite3,secrets,socket,string,subprocess,sys,tempfile,shutil,zipfile,io,base64,datetime
 from pathlib import Path
 from functools import wraps
 from flask import Flask,request,jsonify,session,render_template,send_file
@@ -23,7 +23,7 @@ def db():
     c.execute('PRAGMA foreign_keys=ON'); return c
 
 def init_db():
-    (BASE/'data').mkdir(exist_ok=True); STORAGE.mkdir(exist_ok=True)
+    (BASE/'data').mkdir(exist_ok=True); STORAGE.mkdir(exist_ok=True); LOCAL_HUB.mkdir(exist_ok=True)
     c=db(); c.executescript('''
     CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,password_hash TEXT NOT NULL,role TEXT NOT NULL DEFAULT 'user',created_at TEXT DEFAULT CURRENT_TIMESTAMP);
     CREATE TABLE IF NOT EXISTS projects(id INTEGER PRIMARY KEY AUTOINCREMENT,owner_id INTEGER NOT NULL,name TEXT NOT NULL,created_at TEXT DEFAULT CURRENT_TIMESTAMP,FOREIGN KEY(owner_id) REFERENCES users(id) ON DELETE CASCADE);
@@ -293,6 +293,16 @@ def create_local_share():
 def quick_share():
     return create_local_share()
 
+@app.get('/api/my-shares')
+@auth
+def my_shares():
+    c=db(); rows=c.execute('SELECT token,created_at,active FROM local_shares WHERE owner_id=? ORDER BY id DESC',(user()['id'],)).fetchall(); c.close()
+    result=[]
+    for r in rows:
+        b=share_dir(r['token']); total=sum(x.stat().st_size for x in b.rglob('*') if x.is_file()) if b.exists() else 0
+        result.append({'token':r['token'],'created_at':r['created_at'],'active':bool(r['active']),'files_size':total})
+    return jsonify(result)
+
 @app.get('/api/local-share/<token>')
 def local_share_info(token):
     r=share_row(token)
@@ -319,6 +329,12 @@ def local_share_upload(token):
         except ValueError:continue
         x.parent.mkdir(parents=True,exist_ok=True); f.save(x); saved.append(x.relative_to(share_dir(token)).as_posix())
     if not saved:return jsonify(error='Нет данных для загрузки'),400
+    meta=share_dir(token)/'.pyspace_manifest.json'
+    manifest={'updated_at':datetime.datetime.utcnow().isoformat()+'Z','files':[]}
+    for x in sorted(share_dir(token).rglob('*')):
+        if x.is_file() and x.name!='.pyspace_manifest.json':
+            manifest['files'].append({'path':x.relative_to(share_dir(token)).as_posix(),'size':x.stat().st_size})
+    meta.write_text(__import__('json').dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
     return jsonify(ok=True,files=saved)
 
 @app.get('/api/local-share/<token>/download/<path:path>')

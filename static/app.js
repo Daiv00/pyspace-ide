@@ -128,7 +128,7 @@ window.addEventListener('DOMContentLoaded',()=>{$('loginBtn').addEventListener('
   document.head.appendChild(css);
 })();
 
-async async function quickQR(){
+async function quickQR(){
   try{
     const d=await api('/api/quick-share',{method:'POST'});
     const url=d.share_url||d.cloud_url||(d.urls&&d.urls[0]);

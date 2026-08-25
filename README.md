@@ -33,3 +33,13 @@ Fixed the modal null-reference that broke Admin and Exchange dialogs; admin role
 - Short share links use `/s/XXXXXXX` with 7-character base62 tokens.
 - Added short redirect route for easier manual entry.
 - Refreshed the main UI with a cleaner product/workspace layout.
+
+## v2.0
+- Fixed JavaScript syntax error that prevented login/register buttons from being wired.
+- Fixed Monaco CDN URL.
+- Added `string` import required by short QR token generation.
+- Initializes `local_hub` on startup.
+- Project files are written directly to `storage/project_<id>/` and share files to `local_hub/share_<token>/`, so they remain after a normal process restart.
+- Added `/api/my-shares` for persistent share history.
+- Added share manifest files.
+- On Render, persistent files across redeploys/restarts require a Render Persistent Disk mounted to the application data directory; otherwise Render's filesystem is ephemeral.
