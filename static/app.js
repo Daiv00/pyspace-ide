@@ -1,6 +1,87 @@
 let ed=null,project=null,file=null,role='user';
 const $=id=>document.getElementById(id);
 const api=async(url,options={})=>{const opts={...options,credentials:'same-origin',headers:{...(options.body&&!(options.body instanceof FormData)?{'Content-Type':'application/json'}:{}),...(options.headers||{})}};let r;try{r=await fetch(url,opts)}catch(e){throw new Error('Нет соединения с сервером: '+e.message)}const text=await r.text();let d={};try{d=text?JSON.parse(text):{}}catch(e){if(!r.ok)throw new Error('HTTP '+r.status)}if(!r.ok)throw new Error(d.error||('HTTP '+r.status));return d};
+
+// --- UI helpers (these were missing entirely, which is why "esc is not defined"
+// broke project/file loading and most sidebar/topbar buttons silently did nothing) ---
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function escAttr(s){return esc(s)}
+function fmtSize(n){n=Number(n||0);return n<1024?n+' Б':n<1048576?(n/1024).toFixed(1)+' КБ':(n/1048576).toFixed(1)+' МБ'}
+function modal(html){$('body').innerHTML=html;$('modal').classList.remove('hidden')}
+function hide(){$('modal').classList.add('hidden');$('body').innerHTML=''}
+function closeSidebar(){const s=$('sidebar');if(s)s.classList.remove('open')}
+async function copyText(t){
+  try{
+    if(navigator.clipboard&&window.isSecureContext){await navigator.clipboard.writeText(t)}
+    else{const ta=document.createElement('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove()}
+    alert('✓ Ссылка скопирована')
+  }catch(e){alert('Не удалось скопировать: '+e.message)}
+}
+function stdinPrompt(){
+  return new Promise(resolve=>{
+    const wrap=document.createElement('div');
+    wrap.id='stdinModal';
+    wrap.innerHTML=`<div class="stdin-backdrop"></div><div class="stdin-dialog"><div class="stdin-title">Программа ожидает ввод</div><div class="stdin-sub">Код использует input(), а тестовые данные пустые. Введите значения (каждое с новой строки) и запустите ещё раз.</div><textarea id="stdinPromptValue" rows="6" placeholder="Например:&#10;5&#10;10"></textarea><div class="stdin-actions"><button id="stdinCancel">Отмена</button><button id="stdinRun">Запустить</button></div></div>`;
+    document.body.appendChild(wrap);
+    const ta=wrap.querySelector('#stdinPromptValue');
+    ta.focus();
+    const cleanup=v=>{document.removeEventListener('keydown',onKey);wrap.remove();resolve(v)};
+    const onKey=e=>{if(e.key==='Escape')cleanup(null);if(e.key==='Enter'&&e.ctrlKey)cleanup(ta.value)};
+    document.addEventListener('keydown',onKey);
+    wrap.querySelector('.stdin-backdrop').onclick=()=>cleanup(null);
+    wrap.querySelector('#stdinCancel').onclick=()=>cleanup(null);
+    wrap.querySelector('#stdinRun').onclick=()=>cleanup(ta.value);
+  });
+}
+async function openProject(pid){
+  const ps=await api('/api/projects');
+  const p=ps.find(x=>x.id===pid);
+  if(p)await selectProject(p);
+}
+function localShare(){return quickQR()}
+async function share(){
+  if(!project)return alert('Выберите проект');
+  const username=(prompt('Логин пользователя, которому открыть доступ')||'').trim();
+  if(!username)return;
+  const role=(prompt('Роль доступа: editor или viewer','editor')||'').trim().toLowerCase();
+  if(role!=='editor'&&role!=='viewer')return alert('Роль должна быть editor или viewer');
+  try{
+    await api(`/api/projects/${project.id}/share`,{method:'POST',body:JSON.stringify({username,role})});
+    alert('✓ Доступ выдан: '+username+' ('+role+')');
+  }catch(e){alert('✕ '+e.message)}
+}
+async function admin(){
+  try{
+    const users=await api('/api/admin/users');
+    modal(`<h2>Администрирование</h2><div class="share-urls">${users.map(u=>`<div class="member"><span>${esc(u.username)} <small class="muted">(${esc(u.role)})</small></span><span class="qr-actions"><select data-uid="${u.id}" class="admin-role"><option value="user" ${u.role==='user'?'selected':''}>user</option><option value="admin" ${u.role==='admin'?'selected':''}>admin</option></select><button class="secondary admin-del" data-uid="${u.id}">Удалить</button></span></div>`).join('')}</div>`);
+    $('body').querySelectorAll('.admin-role').forEach(sel=>sel.onchange=async()=>{
+      try{await api(`/api/admin/users/${sel.dataset.uid}/role`,{method:'POST',body:JSON.stringify({role:sel.value})})}catch(e){alert('✕ '+e.message)}
+    });
+    $('body').querySelectorAll('.admin-del').forEach(btn=>btn.onclick=async()=>{
+      if(!confirm('Удалить пользователя?'))return;
+      try{await api(`/api/admin/users/${btn.dataset.uid}`,{method:'DELETE'});btn.closest('.member').remove()}catch(e){alert('✕ '+e.message)}
+    });
+  }catch(e){alert('✕ '+e.message)}
+}
+async function receivedFiles(){
+  try{
+    const files=await api('/api/received-files');
+    const isAdmin=role==='admin';
+    modal(`<h2>Переданные файлы</h2><div class="received-list">${
+      files.length?files.map(f=>`<div class="received-item"><div class="received-main"><b>📄 ${esc(f.original_name)}</b><small>от ${esc(f.owner_name)}${f.recipient_name?' → '+esc(f.recipient_name):''} · ${fmtSize(f.size)}</small></div><div class="received-actions"><a class="tool-btn" href="/api/received-files/${f.id}/download">Скачать</a>${isAdmin?`<button class="tool-btn assign-btn" data-fid="${f.id}">Назначить</button><button class="tool-btn danger-text del-received" data-fid="${f.id}">Удалить</button>`:''}</div></div>`).join(''):'<div class="empty-state">Пока ничего не получено.</div>'
+    }</div>`);
+    $('body').querySelectorAll('.assign-btn').forEach(btn=>btn.onclick=async()=>{
+      const username=(prompt('Логин получателя')||'').trim();if(!username)return;
+      try{await api(`/api/admin/received-files/${btn.dataset.fid}/assign`,{method:'POST',body:JSON.stringify({username})});alert('✓ Назначено: '+username)}catch(e){alert('✕ '+e.message)}
+    });
+    $('body').querySelectorAll('.del-received').forEach(btn=>btn.onclick=async()=>{
+      if(!confirm('Удалить файл?'))return;
+      try{await api(`/api/admin/received-files/${btn.dataset.fid}`,{method:'DELETE'});btn.closest('.received-item').remove()}catch(e){alert('✕ '+e.message)}
+    });
+  }catch(e){alert('✕ '+e.message)}
+}
+function out(t){$('out').textContent=t}
+
 function msg(t){$('msg').textContent=t?.message||String(t||'')}function setBusy(v){$('loginBtn').disabled=v;$('registerBtn').disabled=v}
 async function login(){const username=$('username').value.trim(),password=$('password').value;if(!username||!password)return msg('Введите логин и пароль');setBusy(true);msg('Выполняется вход...');try{start(await api('/api/login',{method:'POST',body:JSON.stringify({username,password})}))}catch(e){msg(e)}finally{setBusy(false)}}
 async function register(){const username=$('username').value.trim(),password=$('password').value;if(!username||!password)return msg('Введите логин и пароль');setBusy(true);msg('Создание аккаунта...');try{const d=await api('/api/register',{method:'POST',body:JSON.stringify({username,password})});msg(d.role==='admin'?'Аккаунт создан как admin. Теперь войдите.':'Аккаунт создан. Теперь нажмите «Войти».')}catch(e){msg(e)}finally{setBusy(false)}}
@@ -74,5 +155,18 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(registerBtn) registerBtn.addEventListener('click', register);
   const password=document.getElementById('password');
   if(password) password.addEventListener('keydown', e=>{if(e.key==='Enter') login()});
+
+  const menuBtn=document.getElementById('menuBtn');
+  if(menuBtn) menuBtn.addEventListener('click', ()=>$('sidebar').classList.toggle('open'));
+
+  const uploadInput=document.getElementById('uploadInput');
+  if(uploadInput) uploadInput.addEventListener('change', async e=>{await uploadFiles(e.target.files);e.target.value=''});
+
+  const modalEl=document.getElementById('modal');
+  if(modalEl) modalEl.addEventListener('click', e=>{if(e.target===modalEl) hide()});
+
+  const langSelect=document.getElementById('langSelect');
+  if(langSelect) langSelect.addEventListener('change', e=>{if(ed) monaco.editor.setModelLanguage(ed.getModel(), e.target.value)});
+
   initEditor();
 });
