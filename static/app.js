@@ -22,7 +22,7 @@ async function downloadCurrent(){if(!project||!file)return;location.href=`/api/p
 async function downloadZip(){if(!project)return;location.href=`/api/projects/${project.id}/download.zip`}
 async function deleteFile(){if(!file||!confirm('Удалить файл?'))return;await api(`/api/projects/${project.id}/files`,{method:'DELETE',body:JSON.stringify({path:file.path})});file=null;await loadFiles()}
 async function renameFile(){if(!file)return;let p=prompt('Новый путь',file.path);if(!p||p===file.path)return;await api(`/api/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({old_path:file.path,new_path:p})});await openFile(p)}
-async function run(){if(!project||!file)return;await save();out('▶ Выполнение...');try{const d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path,stdin:$('stdin').value})});out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+(d.output||''));if(d.kind==='html'||d.kind==='css')preview()}catch(e){out('✕ '+e.message)}}
+async function run(stdinOverride){if(!project||!file)return;await save();let stdin=stdinOverride===undefined?$('stdin').value:stdinOverride;const code=ed?ed.getValue():'';if(stdinOverride===undefined && /\binput\s*\(/.test(code) && !stdin.trim()){const entered=await stdinPrompt();if(entered===null)return;stdin=entered;$('stdin').value=entered}out('▶ Выполнение...');try{const d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path,stdin})});out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+(d.output||d.error||''));if(d.kind==='html'||d.kind==='css')preview()}catch(e){out('✕ '+e.message)}}
 async function preview(){if(!project||!file)return;const ext=file.path.toLowerCase().split('.').pop();if(!['html','htm','css'].includes(ext))return out('Предпросмотр доступен для HTML/CSS.');await save();const d=await api(`/api/projects/${project.id}/preview/${encodeURIComponent(file.path)}`);let html;if(ext==='html')html=d.content;else html=`<!doctype html><html><head><meta charset="utf-8"><style>${d.content}</style></head><body><div class="preview-demo"><h1>PySpace CSS Preview</h1><p>Это предпросмотр CSS.</p><button>Button</button></div></body></html>`;modal(`<h2>Предпросмотр</h2><iframe class="preview" sandbox="allow-scripts" srcdoc="${escAttr(html)}"></iframe>`)}
 async function share(){if(!project)return;let u=prompt('Логин пользователя');if(!u)return;let r=prompt('Роль: editor или viewer','editor');if(!r)return;try{await api(`/api/projects/${project.id}/share`,{method:'POST',body:JSON.stringify({username:u,role:r})});alert('Доступ выдан')}catch(e){alert(e.message)}}
 async function localShare(){try{const d=await api('/api/local-share',{method:'POST'});const lan=d.urls?.[0]||'';const main=lan||d.cloud_url;modal(`<div class="share-modal"><div class="eyebrow">FILE DROP</div><h2>Обмен файлами</h2><p class="muted">Эту ссылку можно открыть на другом устройстве. В локальном режиме устройства должны быть в одной Wi‑Fi сети.</p><div class="share-link">${esc(main||'')}</div>${d.token?`<img class="qr" src="/api/local-share/${d.token}/qr" alt="QR-код">`:''}<div class="share-urls">${(d.urls||[]).map(x=>`<div>${esc(x)}</div>`).join('')}</div><p class="muted small">${d.local_mode?'Локальный Wi‑Fi режим активен.':'Сейчас PySpace работает в облаке Render. Для локального Wi‑Fi обмена запустите PySpace на компьютере в вашей сети.'}</p><button class="primary" onclick="copyText('${escAttr(main)}')">Копировать ссылку</button></div>`)}catch(e){alert('Обмен: '+e.message)}}
@@ -39,98 +39,23 @@ function closeSidebar(){if(window.innerWidth<=760)$('sidebar').classList.remove(
 window.login=login;window.register=register;window.receivedFiles=receivedFiles;window.assignReceived=assignReceived;window.deleteReceived=deleteReceived;window.logout=logout;window.newProject=newProject;window.newFile=newFile;window.save=save;window.uploadFiles=uploadFiles;window.downloadCurrent=downloadCurrent;window.downloadZip=downloadZip;window.deleteFile=deleteFile;window.renameFile=renameFile;window.run=run;window.preview=preview;window.share=share;window.localShare=localShare;window.admin=admin;window.setRole=setRole;window.delUser=delUser;window.hide=hide;window.copyText=copyText;
 window.addEventListener('DOMContentLoaded',()=>{$('loginBtn').addEventListener('click',login);$('registerBtn').addEventListener('click',register);$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});$('uploadInput').addEventListener('change',e=>{uploadFiles(e.target.files);e.target.value=''});$('langSelect').addEventListener('change',e=>setLanguage(e.target.value));$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));initEditor()});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();run()}});
 
-/* PySpace v1.5: reliable Admin/Exchange + interactive input */
-(function(){
-  function editorCode(){
-    try { if(window.editor && typeof window.editor.getValue==="function") return window.editor.getValue(); } catch(e){}
-    const el=document.querySelector("#editor, textarea.editor");
-    return el ? el.value : "";
-  }
-
-  function stdinPrompt(){
-    return new Promise(function(resolve){
-      const old=document.getElementById("stdinModal"); if(old) old.remove();
-      const modal=document.createElement("div");
-      modal.id="stdinModal";
-      modal.innerHTML='<div class="stdin-backdrop"></div><div class="stdin-dialog" role="dialog" aria-modal="true">'+
-        '<div class="stdin-title">⌨ Ввод данных</div>'+
-        '<div class="stdin-sub">Программа использует input(). Введите тестовые данные. Каждая строка — отдельный ввод.</div>'+
-        '<textarea id="stdinPromptValue" rows="7" placeholder="Денис\n25\nhello"></textarea>'+
-        '<div class="stdin-actions"><button id="stdinCancel">Отмена</button><button id="stdinRun">▶ Продолжить</button></div></div>';
-      document.body.appendChild(modal);
-      const ta=modal.querySelector("#stdinPromptValue"); ta.focus();
-      modal.querySelector("#stdinCancel").onclick=function(){modal.remove();resolve(null)};
-      modal.querySelector("#stdinRun").onclick=function(){const v=ta.value;modal.remove();resolve(v)};
-    });
-  }
-
-  async function runInteractive(){
-    const code=editorCode();
-    if(!/\binput\s*\(/.test(code)){
-      if(typeof window.runCode==="function") return window.runCode();
-      if(typeof window.runCurrent==="function") return window.runCurrent();
-      return;
-    }
-    const stdin=await stdinPrompt();
-    if(stdin===null) return;
-    try {
-      if(typeof window.runCode==="function") return window.runCode(stdin);
-      if(typeof window.runCurrent==="function") return window.runCurrent(stdin);
-    } catch(e){ console.error(e); }
-    try{
-      const r=await fetch("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:code,stdin:stdin})});
-      const d=await r.json();
-      const out=document.querySelector("#output,#terminalOutput,.output");
-      if(out) out.textContent=(d.stdout||"")+(d.stderr?("\n"+d.stderr):"");
-    }catch(e){
-      const out=document.querySelector("#output,#terminalOutput,.output");
-      if(out) out.textContent="Ошибка запуска: "+e.message;
-    }
-  }
-
-  document.addEventListener("click",async function(e){
-    const b=e.target.closest("button,a"); if(!b)return;
-    const id=(b.id||"").toLowerCase(), text=(b.textContent||"").trim().toLowerCase();
-
-    if(id.includes("admin") || text.includes("админ")){
-      e.preventDefault(); e.stopPropagation();
-      try{
-        if(role!=='admin') {
-          // Refresh role from server so an admin account created by environment settings is recognized.
-          const me=await api('/api/me');
-          role=me.role||'user';
-          $('admin').style.display=role==='admin'?'inline-flex':'none';
-        }
-        if(role==='admin') await window.admin();
-        else alert("Админ-панель доступна только администратору.");
-      }catch(err){alert(err.message||"Не удалось открыть админ-панель.");}
-      return;
-    }
-
-    if(id.includes("share") || id.includes("exchange") || text.includes("обмен")){
-      e.preventDefault(); e.stopPropagation();
-      try{ await window.localShare(); }
-      catch(err){ alert(err.message||"Не удалось создать обмен."); }
-      return;
-    }
-
-    if((text.includes("запустить") || text.includes("run")) && !b.dataset.stdinV15){
-      b.dataset.stdinV15="1";
-      e.preventDefault(); e.stopImmediatePropagation();
-      runInteractive();
-    }
-  },true);
-
-  const css=document.createElement("style");
-  css.textContent=`#stdinModal{position:fixed;inset:0;z-index:99999;display:grid;place-items:center}
-  .stdin-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.76);backdrop-filter:blur(6px)}
-  .stdin-dialog{position:relative;width:min(560px,calc(100vw - 24px));box-sizing:border-box;background:#151a25;border:1px solid #343c4e;border-radius:18px;padding:20px;box-shadow:0 25px 90px rgba(0,0,0,.6);color:#f4f6fb}
-  .stdin-title{font-size:20px;font-weight:750;margin-bottom:7px}.stdin-sub{font-size:13px;color:#aeb7c8;line-height:1.45;margin-bottom:14px}
-  #stdinPromptValue{width:100%;box-sizing:border-box;background:#0b1018;color:#f4f6fb;border:1px solid #3a4355;border-radius:12px;padding:12px;font:14px ui-monospace,Consolas,monospace;resize:vertical}
-  .stdin-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}.stdin-actions button{border:0;border-radius:10px;padding:10px 16px;cursor:pointer;background:#2b3342;color:#fff}.stdin-actions #stdinRun{background:#705df5}
-  @media(max-width:600px){.stdin-dialog{padding:15px}.stdin-title{font-size:18px}}`;
-  document.head.appendChild(css);
-})();
+function stdinPrompt(){
+  return new Promise(function(resolve){
+    const old=document.getElementById("stdinModal"); if(old) old.remove();
+    const modal=document.createElement("div"); modal.id="stdinModal";
+    modal.innerHTML='<div class="stdin-backdrop"></div><div class="stdin-dialog" role="dialog" aria-modal="true">'+
+      '<div class="stdin-title">⌨ Ввод данных</div>'+
+      '<div class="stdin-sub">Программа использует input(). Введите значения, каждое с новой строки.</div>'+
+      '<textarea id="stdinPromptValue" rows="7" placeholder="Денис\n25\nhello"></textarea>'+
+      '<div class="stdin-actions"><button id="stdinCancel">Отмена</button><button id="stdinRun">▶ Продолжить</button></div></div>';
+    document.body.appendChild(modal); const ta=modal.querySelector("#stdinPromptValue"); ta.focus();
+    modal.querySelector("#stdinCancel").onclick=()=>{modal.remove();resolve(null)};
+    modal.querySelector("#stdinRun").onclick=()=>{const v=ta.value;modal.remove();resolve(v)};
+  });
+}
+const stdinStyle=document.createElement("style");
+stdinStyle.textContent=`#stdinModal{position:fixed;inset:0;z-index:99999;display:grid;place-items:center}.stdin-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.76);backdrop-filter:blur(6px)}.stdin-dialog{position:relative;width:min(560px,calc(100vw - 24px));box-sizing:border-box;background:#151a25;border:1px solid #343c4e;border-radius:18px;padding:20px;box-shadow:0 25px 90px rgba(0,0,0,.6);color:#f4f6fb}.stdin-title{font-size:20px;font-weight:750;margin-bottom:7px}.stdin-sub{font-size:13px;color:#aeb7c8;line-height:1.45;margin-bottom:14px}#stdinPromptValue{width:100%;box-sizing:border-box;background:#0b1018;color:#f4f6fb;border:1px solid #3a4355;border-radius:12px;padding:12px;font:14px ui-monospace,Consolas,monospace;resize:vertical}.stdin-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}.stdin-actions button{border:0;border-radius:10px;padding:10px 16px;cursor:pointer;background:#2b3342;color:#fff}.stdin-actions #stdinRun{background:#705df5}`;
+document.head.appendChild(stdinStyle);
 
 async function quickQR(){
   try{
