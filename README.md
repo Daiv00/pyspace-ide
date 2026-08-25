@@ -12,3 +12,7 @@ Dockerfile уже настроен на Gunicorn и порт `8080`.
 
 ## Важно про хранение
 Файлы хранятся на сервере в `storage/`, поэтому отключение телефона/браузера/локального LAN не удаляет их. Для гарантированного сохранения между пересозданиями Render в следующем этапе рекомендуется подключить persistent storage/object storage + PostgreSQL.
+
+
+## v1.5
+Reliable Admin/Exchange controls and an interactive input() dialog.

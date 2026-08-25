@@ -34,3 +34,95 @@ function modal(x){$('body').insertAdjacentHTML('beforeend','');$('body').style.o
 function closeSidebar(){if(window.innerWidth<=760)$('sidebar').classList.remove('open')}
 window.login=login;window.register=register;window.logout=logout;window.newProject=newProject;window.newFile=newFile;window.save=save;window.uploadFiles=uploadFiles;window.downloadCurrent=downloadCurrent;window.downloadZip=downloadZip;window.deleteFile=deleteFile;window.renameFile=renameFile;window.run=run;window.preview=preview;window.share=share;window.localShare=localShare;window.admin=admin;window.setRole=setRole;window.delUser=delUser;window.hide=hide;window.copyText=copyText;
 window.addEventListener('DOMContentLoaded',()=>{$('loginBtn').addEventListener('click',login);$('registerBtn').addEventListener('click',register);$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});$('uploadInput').addEventListener('change',e=>{uploadFiles(e.target.files);e.target.value=''});$('langSelect').addEventListener('change',e=>setLanguage(e.target.value));$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));initEditor()});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();run()}});
+
+/* PySpace v1.5: reliable Admin/Exchange + interactive input */
+(function(){
+  function editorCode(){
+    try { if(window.editor && typeof window.editor.getValue==="function") return window.editor.getValue(); } catch(e){}
+    const el=document.querySelector("#editor, textarea.editor");
+    return el ? el.value : "";
+  }
+
+  function stdinPrompt(){
+    return new Promise(function(resolve){
+      const old=document.getElementById("stdinModal"); if(old) old.remove();
+      const modal=document.createElement("div");
+      modal.id="stdinModal";
+      modal.innerHTML='<div class="stdin-backdrop"></div><div class="stdin-dialog" role="dialog" aria-modal="true">'+
+        '<div class="stdin-title">⌨ Ввод данных</div>'+
+        '<div class="stdin-sub">Программа использует input(). Введите тестовые данные. Каждая строка — отдельный ввод.</div>'+
+        '<textarea id="stdinPromptValue" rows="7" placeholder="Денис\n25\nhello"></textarea>'+
+        '<div class="stdin-actions"><button id="stdinCancel">Отмена</button><button id="stdinRun">▶ Продолжить</button></div></div>';
+      document.body.appendChild(modal);
+      const ta=modal.querySelector("#stdinPromptValue"); ta.focus();
+      modal.querySelector("#stdinCancel").onclick=function(){modal.remove();resolve(null)};
+      modal.querySelector("#stdinRun").onclick=function(){const v=ta.value;modal.remove();resolve(v)};
+    });
+  }
+
+  async function runInteractive(){
+    const code=editorCode();
+    if(!/\binput\s*\(/.test(code)){
+      if(typeof window.runCode==="function") return window.runCode();
+      if(typeof window.runCurrent==="function") return window.runCurrent();
+      return;
+    }
+    const stdin=await stdinPrompt();
+    if(stdin===null) return;
+    try {
+      if(typeof window.runCode==="function") return window.runCode(stdin);
+      if(typeof window.runCurrent==="function") return window.runCurrent(stdin);
+    } catch(e){ console.error(e); }
+    try{
+      const r=await fetch("/api/run",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code:code,stdin:stdin})});
+      const d=await r.json();
+      const out=document.querySelector("#output,#terminalOutput,.output");
+      if(out) out.textContent=(d.stdout||"")+(d.stderr?("\n"+d.stderr):"");
+    }catch(e){
+      const out=document.querySelector("#output,#terminalOutput,.output");
+      if(out) out.textContent="Ошибка запуска: "+e.message;
+    }
+  }
+
+  document.addEventListener("click",async function(e){
+    const b=e.target.closest("button,a"); if(!b)return;
+    const id=(b.id||"").toLowerCase(), text=(b.textContent||"").trim().toLowerCase();
+
+    if(id.includes("admin") || text.includes("админ")){
+      e.preventDefault(); e.stopPropagation();
+      try{
+        const r=await fetch("/admin",{credentials:"same-origin"});
+        if(r.ok) location.href="/admin"; else alert("Админ-панель доступна только администратору.");
+      }catch(err){alert("Не удалось открыть админ-панель.");}
+      return;
+    }
+
+    if(id.includes("share") || id.includes("exchange") || text.includes("обмен")){
+      e.preventDefault(); e.stopPropagation();
+      // Prefer existing share function.
+      try{
+        if(typeof window.createShare==="function"){ await window.createShare(); return; }
+        if(typeof window.createShareLink==="function"){ await window.createShareLink(); return; }
+      }catch(err){console.error(err);}
+      // Fallback to share page.
+      location.href="/share";
+      return;
+    }
+
+    if((text.includes("запустить") || text.includes("run")) && !b.dataset.stdinV15){
+      b.dataset.stdinV15="1";
+      e.preventDefault(); e.stopImmediatePropagation();
+      runInteractive();
+    }
+  },true);
+
+  const css=document.createElement("style");
+  css.textContent=`#stdinModal{position:fixed;inset:0;z-index:99999;display:grid;place-items:center}
+  .stdin-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.76);backdrop-filter:blur(6px)}
+  .stdin-dialog{position:relative;width:min(560px,calc(100vw - 24px));box-sizing:border-box;background:#151a25;border:1px solid #343c4e;border-radius:18px;padding:20px;box-shadow:0 25px 90px rgba(0,0,0,.6);color:#f4f6fb}
+  .stdin-title{font-size:20px;font-weight:750;margin-bottom:7px}.stdin-sub{font-size:13px;color:#aeb7c8;line-height:1.45;margin-bottom:14px}
+  #stdinPromptValue{width:100%;box-sizing:border-box;background:#0b1018;color:#f4f6fb;border:1px solid #3a4355;border-radius:12px;padding:12px;font:14px ui-monospace,Consolas,monospace;resize:vertical}
+  .stdin-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:14px}.stdin-actions button{border:0;border-radius:10px;padding:10px 16px;cursor:pointer;background:#2b3342;color:#fff}.stdin-actions #stdinRun{background:#705df5}
+  @media(max-width:600px){.stdin-dialog{padding:15px}.stdin-title{font-size:18px}}`;
+  document.head.appendChild(css);
+})();
