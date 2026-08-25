@@ -88,7 +88,7 @@ def clean(p):
     # Keep normal Unicode filenames, but remove characters that are unsafe on Windows/Linux.
     safe=[]
     for x in parts:
-        x=re.sub(r'[<>:"|?*\\x00-\\x1f]','_',x).strip()
+        x=re.sub(r'[<>:"|?*\x00-\x1f]','_',x).strip()
         if not x or x in ('.','..'): continue
         safe.append(x)
     if not safe: raise ValueError('Недопустимое имя файла')
