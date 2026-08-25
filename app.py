@@ -22,6 +22,15 @@ app=Flask(__name__)
 app.secret_key=os.getenv('PYSPACE_SECRET',secrets.token_hex(32))
 app.config['MAX_CONTENT_LENGTH']=100*1024*1024
 
+@app.errorhandler(RequestEntityTooLarge)
+def handle_too_large(e):
+    return jsonify(ok=False,error='ZIP/файл слишком большой (максимум 100 МБ)'),413
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(e):
+    app.logger.exception('Unhandled server error')
+    return jsonify(ok=False,error='Внутренняя ошибка сервера',details=str(e)),500
+
 LANGS={'py':'python','pyw':'python','html':'html','htm':'html','css':'css','sql':'sql','js':'javascript','json':'json','txt':'plaintext'}
 
 def db():
@@ -429,7 +438,7 @@ def upload_project_zip_auto():
         name=f'{base} ({n})'; n+=1
     cur=c.execute('INSERT INTO projects(owner_id,name) VALUES(?,?)',(user()['id'],name))
     pid=cur.lastrowid; c.commit(); c.close()
-    p=Path(project_dir(pid)); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'; f.save(tmp)
+    p=pdir(pid); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'; f.save(tmp)
     try: files=safe_extract_zip(tmp,p)
     except zipfile.BadZipFile:
         tmp.unlink(missing_ok=True); c=db(); c.execute('DELETE FROM projects WHERE id=?',(pid,)); c.commit(); c.close()
@@ -445,7 +454,7 @@ def upload_project_zip(project_id):
     if not f or not f.filename.lower().endswith('.zip'): return jsonify(ok=False,error='Нужен ZIP-файл'),400
     c=db(); row=c.execute('SELECT * FROM projects WHERE id=? AND owner_id=?',(project_id,user()['id'])).fetchone(); c.close()
     if not row: return jsonify(ok=False,error='Проект не найден'),404
-    p=Path(project_dir(project_id)); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'; f.save(tmp)
+    p=pdir(project_id); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'; f.save(tmp)
     try: files=safe_extract_zip(tmp,p)
     except zipfile.BadZipFile: return jsonify(ok=False,error='Файл повреждён или это не ZIP'),400
     finally: tmp.unlink(missing_ok=True)
