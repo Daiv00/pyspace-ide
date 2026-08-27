@@ -32,6 +32,7 @@
 </select>
 <button class="tool-btn" onclick="save()">Сохранить</button>
 <button class="tool-btn" onclick="preview()">Предпросмотр</button>
+<button class="tool-btn" onclick="openInWindow()">⬜ Открыть</button>
 <button class="run-btn" onclick="run()">▶ Запустить</button>
 </div>
 </div>
@@ -312,6 +313,44 @@ document.getElementById('tab').textContent='Нет проекта';
 document.getElementById('files').innerHTML='';
 }catch(e){
 alert('Не удалось удалить проект: '+e.message);
+}
+};
+
+// === ОТКРЫТЬ В ОТДЕЛЬНОМ ОКНЕ ===
+window.openInWindow=async function(){
+if(!window.project||!window.file){
+alert('Сначала откройте файл');
+return;
+}
+const ext=window.file.path.toLowerCase().split('.').pop();
+if(!['html','htm','css','py','txt','json','js','sql','md','xml','svg'].includes(ext)){
+alert('Предпросмотр в отдельном окне доступен для HTML, CSS, Python, TXT, JSON, JS, SQL, MD, XML, SVG');
+return;
+}
+try{
+await window.save();
+const d=await api('/api/projects/'+window.project.id+'/preview/'+encodeURIComponent(window.file.path));
+const content=d.content||'';
+let fullHtml;
+if(ext==='html'||ext==='htm'){
+fullHtml=content;
+}else if(ext==='css'){
+fullHtml='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CSS Preview - '+esc(window.file.path)+'</title><style>'+content+'</style></head><body><div style="padding:20px;font-family:sans-serif;max-width:800px;margin:0 auto;"><h1>CSS Preview</h1><p>Это предпросмотр CSS файла <code>'+esc(window.file.path)+'</code></p><hr><div style="padding:20px;border:1px solid #ccc;border-radius:8px;margin:20px 0;"><h2>Пример контента</h2><p>Здесь отображается ваш CSS.</p><button style="padding:8px 16px;border:none;border-radius:4px;background:#007bff;color:#fff;cursor:pointer;">Кнопка</button></div><hr><p style="color:#666;font-size:12px;">PySpace — открыть в отдельном окне</p></div></body></html>';
+}else if(ext==='py'){
+fullHtml='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(window.file.path)+' - PySpace</title><style>body{background:#1e1e2e;color:#d4d4d4;font:14px/1.6 "JetBrains Mono","Fira Code",monospace;padding:20px;max-width:900px;margin:0 auto}pre{background:#0d0d1a;padding:20px;border-radius:10px;overflow:auto;white-space:pre-wrap;word-break:break-word}.header{color:#8d7cff;border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:20px}.header small{color:#666;font-size:12px}</style></head><body><div class="header"><h2>🐍 '+esc(window.file.path)+'</h2><small>Python код — открыт в отдельном окне</small></div><pre>'+esc(content)+'</pre><p style="color:#666;font-size:12px;margin-top:20px;">PySpace — открыть в отдельном окне</p></body></html>';
+}else{
+try{
+if(ext==='json'){const parsed=JSON.parse(content);const formatted=JSON.stringify(parsed,null,2);fullHtml='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(window.file.path)+' - PySpace</title><style>body{background:#1e1e2e;color:#d4d4d4;font:14px/1.6 "JetBrains Mono",monospace;padding:20px;max-width:900px;margin:0 auto}pre{background:#0d0d1a;padding:20px;border-radius:10px;overflow:auto;white-space:pre-wrap;word-break:break-word}.header{color:#8d7cff;border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:20px}.header small{color:#666;font-size:12px}</style></head><body><div class="header"><h2>📋 '+esc(window.file.path)+'</h2><small>JSON — открыт в отдельном окне</small></div><pre>'+esc(formatted)+'</pre><p style="color:#666;font-size:12px;margin-top:20px;">PySpace — открыть в отдельном окне</p></body></html>';}else{throw new Error('not json');}
+}catch(e){
+fullHtml='<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+esc(window.file.path)+' - PySpace</title><style>body{background:#1e1e2e;color:#d4d4d4;font:14px/1.6 "JetBrains Mono",monospace;padding:20px;max-width:900px;margin:0 auto}pre{background:#0d0d1a;padding:20px;border-radius:10px;overflow:auto;white-space:pre-wrap;word-break:break-word}.header{color:#8d7cff;border-bottom:1px solid #333;padding-bottom:10px;margin-bottom:20px}.header small{color:#666;font-size:12px}</style></head><body><div class="header"><h2>📄 '+esc(window.file.path)+'</h2><small>'+esc(ext)+' — открыт в отдельном окне</small></div><pre>'+esc(content)+'</pre><p style="color:#666;font-size:12px;margin-top:20px;">PySpace — открыть в отдельном окне</p></body></html>';
+}
+}
+const newWin=window.open('','_blank','width=900,height=700,scrollbars=yes,menubar=no,status=no,toolbar=no');
+if(newWin){
+newWin.document.write(fullHtml);
+newWin.document.close();
+}else{
+alert('Не удалось открыть окно. Разрешите всплывающие окна для этого сайта.');
 }
 };
 
