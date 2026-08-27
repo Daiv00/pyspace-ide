@@ -1,0 +1,1 @@
+v3.1: fixed ZIP 500 (project_dir -> pdir), added project terminal, per-project pip install via .packages, Python runner PYTHONPATH, download project/file chooser modal, responsive phone/PC terminal UI.

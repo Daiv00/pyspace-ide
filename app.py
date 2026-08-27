@@ -2,6 +2,7 @@ import os,re,sqlite3,secrets,socket,string,subprocess,sys,tempfile,shutil,zipfil
 from pathlib import Path
 from functools import wraps
 from flask import Flask,request,jsonify,session,render_template,send_file
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.security import generate_password_hash,check_password_hash
 
 BASE=Path(__file__).resolve().parent
@@ -16,6 +17,11 @@ TIMEOUT=int(os.getenv('PYSPACE_RUN_TIMEOUT','8'))
 app=Flask(__name__)
 app.secret_key=os.getenv('PYSPACE_SECRET',secrets.token_hex(32))
 app.config['MAX_CONTENT_LENGTH']=100*1024*1024
+
+@app.errorhandler(RequestEntityTooLarge)
+def too_large(e):
+    return jsonify(ok=False,error='ZIP слишком большой. Максимальный размер — 100 МБ.'),413
+
 
 LANGS={'py':'python','pyw':'python','html':'html','htm':'html','css':'css','sql':'sql','js':'javascript','json':'json','txt':'plaintext'}
 
@@ -166,6 +172,17 @@ def create_project():
     c=db(); cur=c.execute('INSERT INTO projects(owner_id,name) VALUES(?,?)',(user()['id'],n)); pid=cur.lastrowid; c.execute('INSERT INTO members VALUES(?,?,?)',(pid,user()['id'],'owner')); c.commit(); c.close()
     pdir(pid).mkdir(parents=True); fpath(pid,'main.py').write_text("print('Hello from PySpace!')",encoding='utf-8'); return jsonify(id=pid,name=n)
 
+@app.post('/api/projects/<int:pid>/rename')
+@auth
+def rename_project(pid):
+    p=access(pid,True)
+    if not p or p['owner_id']!=user()['id']: return jsonify(error='Только владелец'),403
+    n=str((request.get_json() or {}).get('name','')).strip()
+    if not n or len(n)>80:return jsonify(error='Некорректное имя'),400
+    c=db(); exists=c.execute('SELECT 1 FROM projects WHERE owner_id=? AND name=? AND id<>?',(user()['id'],n,pid)).fetchone()
+    if exists:c.close();return jsonify(error='Проект с таким именем уже существует'),409
+    c.execute('UPDATE projects SET name=? WHERE id=?',(n,pid));c.commit();c.close();return jsonify(ok=True,name=n)
+
 @app.delete('/api/projects/<int:pid>')
 @auth
 def delete_project(pid):
@@ -232,7 +249,12 @@ def download_project(pid):
     with zipfile.ZipFile(mem,'w',zipfile.ZIP_DEFLATED) as z:
         if b.exists():
             for x in b.rglob('*'):
-                if x.is_file() and '.venv' not in x.parts: z.write(x,x.relative_to(b).as_posix())
+                if not x.is_file():
+                    continue
+                rel=x.relative_to(b).as_posix()
+                if rel == '.upload.zip' or rel.startswith('.packages/') or rel.startswith('__pycache__/') or rel.endswith('.pyc'):
+                    continue
+                z.write(x,rel)
     mem.seek(0); return send_file(mem,as_attachment=True,download_name=f'pyspace_project_{pid}.zip',mimetype='application/zip')
 
 @app.get('/api/projects/<int:pid>/preview/<path:path>')
@@ -417,35 +439,45 @@ def safe_extract_zip(zip_path, destination):
 def upload_project_zip_auto():
     if not user(): return jsonify(ok=False,error='Требуется вход'),401
     f=request.files.get('file')
-    if not f or not f.filename.lower().endswith('.zip'): return jsonify(ok=False,error='Нужен ZIP-файл'),400
+    if not f or not (f.filename or '').lower().endswith('.zip'):
+        return jsonify(ok=False,error='Нужен ZIP-файл'),400
     base=re.sub(r'[^\wА-Яа-яЁё ._-]+','_',Path(f.filename).stem).strip(' ._')[:80] or 'Новый проект'
-    name=base; n=2; c=db()
+    c=db(); name=base; n=2
     while c.execute('SELECT 1 FROM projects WHERE owner_id=? AND name=?',(user()['id'],name)).fetchone():
         name=f'{base} ({n})'; n+=1
     cur=c.execute('INSERT INTO projects(owner_id,name) VALUES(?,?)',(user()['id'],name))
-    pid=cur.lastrowid; c.commit(); c.close()
-    p=pdir(pid); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'; f.save(tmp)
-    try: files=safe_extract_zip(tmp,p)
+    pid=cur.lastrowid; c.execute('INSERT INTO members VALUES(?,?,?)',(pid,user()['id'],'owner')); c.commit(); c.close()
+    p=pdir(pid); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'
+    try:
+        f.save(str(tmp))
+        files=safe_extract_zip(tmp,p)
+        return jsonify(ok=True,project_id=pid,project_name=name,files=files,count=len(files),message=f'Проект «{name}» создан. Распаковано файлов: {len(files)}')
     except zipfile.BadZipFile:
-        tmp.unlink(missing_ok=True); c=db(); c.execute('DELETE FROM projects WHERE id=?',(pid,)); c.commit(); c.close()
         return jsonify(ok=False,error='Файл повреждён или это не ZIP'),400
-    finally: tmp.unlink(missing_ok=True)
-    return jsonify(ok=True,project_id=pid,project_name=name,files=files,count=len(files),
-                    message=f'Проект «{name}» создан. Распаковано файлов: {len(files)}')
+    except Exception as e:
+        app.logger.exception('ZIP import failed')
+        return jsonify(ok=False,error=f'Ошибка обработки ZIP: {e}'),500
+    finally:
+        tmp.unlink(missing_ok=True)
 
 @app.post('/api/projects/<int:project_id>/upload-zip')
 def upload_project_zip(project_id):
     if not user(): return jsonify(ok=False,error='Требуется вход'),401
     f=request.files.get('file')
-    if not f or not f.filename.lower().endswith('.zip'): return jsonify(ok=False,error='Нужен ZIP-файл'),400
-    c=db(); row=c.execute('SELECT * FROM projects WHERE id=? AND owner_id=?',(project_id,user()['id'])).fetchone(); c.close()
-    if not row: return jsonify(ok=False,error='Проект не найден'),404
-    p=pdir(project_id); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'; f.save(tmp)
-    try: files=safe_extract_zip(tmp,p)
-    except zipfile.BadZipFile: return jsonify(ok=False,error='Файл повреждён или это не ZIP'),400
-    finally: tmp.unlink(missing_ok=True)
-    return jsonify(ok=True,project_id=project_id,project_name=row['name'],files=files,count=len(files),
-                    message=f'Распаковано файлов: {len(files)}')
+    if not f or not (f.filename or '').lower().endswith('.zip'):
+        return jsonify(ok=False,error='Нужен ZIP-файл'),400
+    if not access(project_id, True): return jsonify(ok=False,error='Нет прав'),403
+    p=pdir(project_id); p.mkdir(parents=True,exist_ok=True); tmp=p/'.upload.zip'
+    try:
+        f.save(str(tmp)); files=safe_extract_zip(tmp,p)
+        return jsonify(ok=True,project_id=project_id,files=files,count=len(files),message=f'Распаковано файлов: {len(files)}')
+    except zipfile.BadZipFile:
+        return jsonify(ok=False,error='Файл повреждён или это не ZIP'),400
+    except Exception as e:
+        app.logger.exception('Project ZIP import failed')
+        return jsonify(ok=False,error=f'Ошибка обработки ZIP: {e}'),500
+    finally:
+        tmp.unlink(missing_ok=True)
 
 @app.get('/api/received-files')
 @auth
@@ -528,130 +560,111 @@ def revoke_local_share(token):
     c=db(); c.execute('UPDATE local_shares SET active=0 WHERE token=?',(token,)); c.commit(); c.close(); return jsonify(ok=True)
 
 
-def project_venv(pid):
-    v=pdir(pid)/'.venv'
-    if not (v/'pyvenv.cfg').exists():
-        subprocess.run([sys.executable,'-m','venv',str(v)],cwd=pdir(pid),capture_output=True,text=True,timeout=60)
-    return v
+PACKAGE_RE=re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,150}(?:\[[A-Za-z0-9_,.-]{1,100}\])?(?:==|~=|>=|<=|>|<)?[A-Za-z0-9*_.!+-]{0,80}$")
 
-def venv_python(pid):
-    v=project_venv(pid)
-    exe=v/'Scripts'/'python.exe' if os.name=='nt' else v/'bin'/'python'
-    return str(exe)
-
-def update_requirements(pid):
-    py=venv_python(pid)
-    r=subprocess.run([py,'-m','pip','freeze'],cwd=pdir(pid),capture_output=True,text=True,timeout=60)
-    if r.returncode==0:
-        (pdir(pid)/'requirements.txt').write_text(r.stdout,encoding='utf-8')
-    return r.stdout
-
-@app.get('/api/projects/<int:pid>/packages')
-@auth
-def project_packages(pid):
-    if not access(pid): return jsonify(error='Нет доступа'),403
-    try:
-        py=venv_python(pid)
-        r=subprocess.run([py,'-m','pip','list','--format','json'],cwd=pdir(pid),capture_output=True,text=True,timeout=60)
-        if r.returncode!=0:return jsonify(error=r.stderr[-4000:]),500
-        import json
-        return jsonify(json.loads(r.stdout))
-    except Exception as e:return jsonify(error=str(e)),500
-
-@app.post('/api/projects/<int:pid>/packages/install')
-@auth
-def install_package(pid):
-    if not access(pid,True): return jsonify(error='Нет прав'),403
-    d=request.get_json() or {}; name=str(d.get('package','')).strip()
-    if not re.fullmatch(r'[A-Za-z0-9_.-]+(?:==[A-Za-z0-9_.!+-]+)?',name):
-        return jsonify(error='Некорректное имя пакета'),400
-    try:
-        py=venv_python(pid)
-        r=subprocess.run([py,'-m','pip','install',name],cwd=pdir(pid),capture_output=True,text=True,timeout=180)
-        if r.returncode!=0:return jsonify(ok=False,output=(r.stdout+r.stderr)[-12000:]),400
-        req=update_requirements(pid)
-        return jsonify(ok=True,output=(r.stdout+r.stderr)[-12000:],requirements=req)
-    except subprocess.TimeoutExpired:return jsonify(ok=False,error='Установка превысила 180 секунд'),408
-    except Exception as e:return jsonify(ok=False,error=str(e)),500
-
-@app.post('/api/projects/<int:pid>/packages/uninstall')
-@auth
-def uninstall_package(pid):
-    if not access(pid,True): return jsonify(error='Нет прав'),403
-    d=request.get_json() or {}; name=str(d.get('package','')).strip()
-    if not re.fullmatch(r'[A-Za-z0-9_.-]+',name):return jsonify(error='Некорректное имя пакета'),400
-    try:
-        py=venv_python(pid); r=subprocess.run([py,'-m','pip','uninstall','-y',name],cwd=pdir(pid),capture_output=True,text=True,timeout=120)
-        update_requirements(pid); return jsonify(ok=r.returncode==0,output=(r.stdout+r.stderr)[-12000:])
-    except Exception as e:return jsonify(ok=False,error=str(e)),500
-
-@app.post('/api/projects/<int:pid>/terminal')
-@auth
-def terminal(pid):
-    if not access(pid): return jsonify(error='Нет доступа'),403
-    d=request.get_json() or {}; command=str(d.get('command','')).strip()
-    if not command:return jsonify(error='Введите команду'),400
-    if len(command)>500:return jsonify(error='Команда слишком длинная'),413
-    import shlex
-    try: args=shlex.split(command)
-    except ValueError as e:return jsonify(error=str(e)),400
-    if not args:return jsonify(error='Пустая команда'),400
-    cmd=args[0].lower()
-    aliases={'python':'python','python3':'python','pip':'pip','pip3':'pip','pwd':'pwd','ls':'ls','dir':'ls','cat':'cat','type':'cat','echo':'echo'}
-    if cmd not in aliases:return jsonify(ok=False,output=f'Команда «{cmd}» отключена. Разрешены: python, pip, pip3, pwd, ls, dir, cat, type, echo'),400
+def project_env(pid):
     work=pdir(pid); work.mkdir(parents=True,exist_ok=True)
-    if cmd in ('pip','pip3'):
-        exe=venv_python(pid); args=[exe,'-m','pip']+args[1:]
-    elif cmd in ('python','python3'):
-        exe=venv_python(pid); args=[exe]+args[1:]
-    elif cmd=='pwd': args=['pwd']
-    elif cmd=='ls': args=['ls']+args[1:]
-    elif cmd=='cat':
-        if len(args)!=2:return jsonify(ok=False,output='Использование: cat файл'),400
-        try: args=['cat',str(fpath(pid,args[1]))]
-        except ValueError as e:return jsonify(ok=False,output=str(e)),400
-    env=os.environ.copy(); env['PYTHONUNBUFFERED']='1'; env['PYTHONIOENCODING']='utf-8'; env['HOME']=str(work)
+    packages=work/'.packages'; packages.mkdir(parents=True,exist_ok=True)
+    env=os.environ.copy(); env.update({'PYTHONUNBUFFERED':'1','PYTHONIOENCODING':'utf-8','PYSPACE_PROJECT_ID':str(pid),'PYTHONPATH':str(packages)+os.pathsep+env.get('PYTHONPATH','')})
+    return work,env
+
+@app.post('/api/projects/<int:pid>/pip-install')
+@auth
+def pip_install(pid):
+    if not access(pid, True): return jsonify(ok=False,error='Нет прав'),403
+    d=request.get_json() or {}; package=str(d.get('package','')).strip()
+    if not package or len(package)>220 or not PACKAGE_RE.fullmatch(package):
+        return jsonify(ok=False,error='Недопустимое имя пакета. Используйте, например, requests или requests==2.32.3'),400
+    work,env=project_env(pid); target=work/'.packages'
     try:
-        r=subprocess.run(args,cwd=work,capture_output=True,text=True,timeout=60,env=env,shell=False)
+        r=subprocess.run([sys.executable,'-m','pip','install','--disable-pip-version-check','--no-input','--no-cache-dir','--target',str(target),package],cwd=work,capture_output=True,text=True,timeout=120,env=env)
+        output=(r.stdout+r.stderr)[-12000:]
+        return jsonify(ok=r.returncode==0,returncode=r.returncode,output=output,package=package)
+    except subprocess.TimeoutExpired:
+        return jsonify(ok=False,returncode=-1,output='⏱ pip install превысил лимит 120 секунд.'),504
+
+# Terminal deliberately accepts a small, explicit command set instead of an arbitrary shell.
+TERMINAL_RE=re.compile(r'^[A-Za-z0-9_./:@%+\-=,\[\]]+$')
+TERMINAL_CMDS={'pwd','ls','find','cat','head','tail','python','pip','python3'}
+
+def parse_terminal(command):
+    import shlex
+    if any(x in command for x in [';','&&','||','|','>','<','`','$','\n','\r']):
+        raise ValueError('Команды с shell-операторами запрещены')
+    args=shlex.split(command)
+    if not args or args[0] not in TERMINAL_CMDS:
+        raise ValueError('Разрешены: pwd, ls, find, cat, head, tail, python, python3, pip')
+    if len(args)>12: raise ValueError('Слишком много аргументов')
+    if not all(TERMINAL_RE.fullmatch(a) for a in args): raise ValueError('Недопустимый аргумент')
+    if args[0] in ('python','python3'):
+        if '-c' in args: raise ValueError('python -c отключён в терминале')
+        if '-m' in args:
+            if len(args)<3 or args[2] not in ('pip','pip3'): raise ValueError('Разрешён только python -m pip')
+        else:
+            allowed_flags={'--version','-V'}
+            if any(a.startswith('-') and a not in allowed_flags for a in args[1:]): raise ValueError('Флаг Python запрещён')
+            for a in args[1:]:
+                if not a.startswith('-') and (a.startswith('/') or a=='..' or a.startswith('../') or '/..' in a): raise ValueError('Доступ за пределы проекта запрещён')
+    if args[0]=='pip':
+        if len(args)>1 and args[1] not in ('list','freeze','show','check','--version','-V'): raise ValueError('Разрешены только pip list, freeze, show, check и --version')
+    if args[0] in ('cat','head','tail','find','ls'):
+        for a in args[1:]:
+            if a.startswith('/') or a=='..' or a.startswith('../') or '/..' in a: raise ValueError('Доступ за пределы проекта запрещён')
+    return args
+
+@app.post('/api/terminal')
+@auth
+def terminal():
+    d=request.get_json() or {}; pid=int(d.get('project_id') or 0); command=str(d.get('command','')).strip()
+    if not access(pid, True): return jsonify(ok=False,error='Нет прав'),403
+    if not command: return jsonify(ok=False,error='Введите команду'),400
+    if len(command)>4000:return jsonify(ok=False,error='Команда слишком длинная'),413
+    try: args=parse_terminal(command)
+    except ValueError as e:return jsonify(ok=False,error=str(e)),400
+    work,env=project_env(pid)
+    try:
+        r=subprocess.run(args,cwd=work,capture_output=True,text=True,timeout=30,env=env)
         return jsonify(ok=r.returncode==0,returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
-    except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output='⏱ Команда превысила 60 секунд'),408
-    except Exception as e:return jsonify(ok=False,error=str(e)),500
+    except subprocess.TimeoutExpired:
+        return jsonify(ok=False,returncode=-1,output='⏱ Команда превысила лимит 30 секунд.'),504
 
 @app.post('/api/run')
 @auth
 def run():
-    d=request.get_json() or {}; pid=int(d.get('project_id') or 0); path=clean(d.get('path') or 'main.py')
+    d=request.get_json() or {}; pid=int(d.get('project_id') or 0)
+    try:path=clean(d.get('path') or 'main.py')
+    except ValueError as e:return jsonify(error=str(e)),400
     if not access(pid):return jsonify(error='Нет доступа'),403
     try:target=fpath(pid,path)
     except ValueError as e:return jsonify(error=str(e)),400
-    if not target.exists():return jsonify(error='Файл не найден'),404
+    if not target.is_file():return jsonify(error='Файл не найден'),404
     ext=target.suffix.lower()
-    if ext=='.html' or ext=='.htm':
-        return jsonify(ok=True,kind='html',output='HTML готов к предпросмотру')
-    if ext=='.css': return jsonify(ok=True,kind='css',output='CSS готов к предпросмотру')
+    if ext in ('.html','.htm'):return jsonify(ok=True,kind='html',output='HTML готов к предпросмотру')
+    if ext=='.css':return jsonify(ok=True,kind='css',output='CSS готов к предпросмотру')
     if ext=='.sql':
         with tempfile.TemporaryDirectory(prefix='pyspace_sql_') as td:
             dbfile=Path(td)/'project.sqlite3'; con=sqlite3.connect(dbfile); con.row_factory=sqlite3.Row
             try:
-                script=target.read_text(encoding='utf-8',errors='replace'); cur=con.cursor(); cur.executescript(script); con.commit()
-                rows=[]
+                script=target.read_text(encoding='utf-8',errors='replace'); cur=con.cursor(); cur.executescript(script); con.commit(); rows=[]
                 for t in cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 20").fetchall():
                     try: rows.extend([dict(r) for r in con.execute(f'SELECT * FROM "{t[0].replace(chr(34),chr(34)*2)}" LIMIT 100').fetchall()])
                     except Exception: pass
-                con.close(); return jsonify(ok=True,kind='sql',output='SQL выполнен успешно\n'+('\n'.join(str(r) for r in rows) if rows else 'Изменения применены.'))
-            except Exception as e:
-                con.close(); return jsonify(ok=False,kind='sql',output=str(e))
-    if ext not in ('.py','.pyw'): return jsonify(error='Для запуска поддерживаются Python, HTML, CSS и SQL'),400
+                return jsonify(ok=True,kind='sql',output='SQL выполнен успешно\n'+('\n'.join(str(r) for r in rows) if rows else 'Изменения применены.'))
+            except Exception as e:return jsonify(ok=False,kind='sql',output=str(e))
+            finally:con.close()
+    if ext not in ('.py','.pyw'):return jsonify(error='Для запуска поддерживаются Python, HTML, CSS и SQL'),400
     stdin_data=str(d.get('stdin',''))
     if len(stdin_data)>20000:return jsonify(error='Тестовые данные слишком большие'),413
     with tempfile.TemporaryDirectory(prefix='pyspace_') as td:
-        work=Path(td)/'project'; shutil.copytree(pdir(pid),work); script=work/path
-        env={'PATH':os.environ.get('PATH',''),'PYTHONIOENCODING':'utf-8','PYTHONUNBUFFERED':'1','HOME':str(work)}
+        work=Path(td)/'project'; shutil.copytree(pdir(pid),work,ignore=shutil.ignore_patterns('.packages','__pycache__','*.pyc','.upload.zip'))
+        script=work/path
+        packages=pdir(pid)/'.packages'
+        env={'PATH':os.environ.get('PATH',''),'PYTHONIOENCODING':'utf-8','PYTHONUNBUFFERED':'1','HOME':str(work),'PYTHONPATH':str(packages)}
         try:
-            py=venv_python(pid)
-            r=subprocess.run([py,'-I',str(script)],cwd=work,input=stdin_data,capture_output=True,text=True,timeout=TIMEOUT,env=env)
+            # No -I: project-local .packages must be importable.
+            r=subprocess.run([sys.executable,str(script)],cwd=work,input=stdin_data,capture_output=True,text=True,timeout=TIMEOUT,env=env)
             return jsonify(ok=r.returncode==0,kind='python',returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
-        except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.\nВозможна бесконечная input()/петля.')
+        except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.\nВозможна бесконечная input()/петля.'),504
 
 @app.get('/api/debug/session')
 @auth
