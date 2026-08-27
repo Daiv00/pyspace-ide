@@ -1,6 +1,6 @@
-PySpace IDE v3.0 ZIP upload fix
+PySpace IDE v4.1
 
-- ZIP uploader no longer blindly parses every response as JSON.
-- HTML/proxy/server error responses now produce a readable status/error instead of "Unexpected token <".
-- Same-origin credentials are explicitly sent with the ZIP request.
-- Static asset cache-busting updated to v27.
+- Fixed ModuleNotFoundError: requests.
+- Added requests to requirements.txt.
+- Added a clear fallback message if dependencies were not installed.
+- app.py passes Python syntax compilation.
