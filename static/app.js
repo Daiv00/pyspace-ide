@@ -20,14 +20,7 @@ async function save(){if(!project||!file||!ed)return;await api(`/api/projects/${
 async function uploadFiles(list){if(!project||!list.length)return;const fd=new FormData();[...list].forEach(f=>fd.append('files',f));try{const r=await api(`/api/projects/${project.id}/upload`,{method:'POST',body:fd});out('✓ Загружено:\n'+r.files.join('\n'));await loadFiles();if(r.files[0])await openFile(r.files[0])}catch(e){out('✕ '+e.message)}}
 async function downloadCurrent(){downloadMenu('file')}
 async function downloadZip(){downloadMenu('project')}
-
-async function renameProject(){
-  if(!project)return alert('Выберите проект');
-  const n=prompt('Новое название проекта',project.name);
-  if(!n || n.trim()===project.name)return;
-  try{await api(`/api/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({name:n.trim()})}); project.name=n.trim(); await loadProjects();}
-  catch(e){alert(e.message)}
-}
+async function renameProject(){if(!project)return alert('Выберите проект');const n=prompt('Новое название проекта',project.name);if(!n||n.trim()===project.name)return;try{await api(`/api/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({name:n.trim()})});project.name=n.trim();await loadProjects();}catch(e){alert(e.message)}}
 async function deleteFile(){if(!file||!confirm('Удалить файл?'))return;await api(`/api/projects/${project.id}/files`,{method:'DELETE',body:JSON.stringify({path:file.path})});file=null;await loadFiles()}
 async function renameFile(){if(!file)return;let p=prompt('Новый путь',file.path);if(!p||p===file.path)return;await api(`/api/projects/${project.id}/rename`,{method:'POST',body:JSON.stringify({old_path:file.path,new_path:p})});await openFile(p)}
 async function run(){if(!project||!file)return;await save();out('▶ Выполнение...');try{const d=await api('/api/run',{method:'POST',body:JSON.stringify({project_id:project.id,path:file.path,stdin:$('stdin').value})});out((d.ok?'✓ Успешно\n\n':'✕ Ошибка\n\n')+(d.output||''));if(d.kind==='html'||d.kind==='css')preview()}catch(e){out('✕ '+e.message)}}
@@ -44,55 +37,51 @@ async function setRole(id,r){await api(`/api/admin/users/${id}/role`,{method:'PO
 function out(x){$('out').textContent=x}function esc(x){return String(x).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]||c))}function escAttr(x){return esc(x).replace(/\n/g,'&#10;')}
 function modal(x){const modalEl=$('modal'), bodyEl=document.querySelector('#body'); if(!modalEl||!bodyEl){console.error('PySpace modal elements missing');alert('Не удалось открыть окно интерфейса. Обновите страницу (Ctrl+F5).');return} document.body.style.overflow='hidden';document.body.classList.add('modal-open');bodyEl.innerHTML=x;modalEl.classList.remove('hidden')}function hide(){const modalEl=$('modal');if(modalEl)modalEl.classList.add('hidden');document.body.style.overflow='';document.body.classList.remove('modal-open')}
 function closeSidebar(){if(window.innerWidth<=760)$('sidebar').classList.remove('open')}
-
 let projectsCache=[];
 async function downloadMenu(kind){
-  const ps=await api('/api/projects'); projectsCache=ps;
-  const title=kind==='project'?'Скачать проект':'Скачать отдельный файл';
-  const body=ps.length?ps.map(p=>`<button class="select-card" onclick="downloadFromProject(${p.id},'${kind}')"><b>▣ ${esc(p.name)}</b><small>${esc(p.access||'')}</small></button>`).join(''):'<div class="empty-state">Проектов пока нет.</div>';
-  modal(`<div class="download-modal"><div class="eyebrow">DOWNLOAD</div><h2>${title}</h2><p class="muted">Выберите проект.</p><div class="select-list">${body}</div></div>`);
+const ps=await api('/api/projects');projectsCache=ps;
+const title=kind==='project'?'Скачать проект':'Скачать отдельный файл';
+const body=ps.length?ps.map(p=>`<button class="select-card" onclick="downloadFromProject(${p.id},'${kind}')"><b>▣ ${esc(p.name)}</b><small>${esc(p.access||'')}</small></button>`).join(''):'<div class="empty-state">Проектов пока нет.</div>';
+modal(`<div class="download-modal"><div class="eyebrow">DOWNLOAD</div><h2>${title}</h2><p class="muted">Выберите проект.</p><div class="select-list">${body}</div></div>`);
 }
 async function downloadFromProject(pid,kind){
-  if(kind==='project'){location.href=`/api/projects/${pid}/download.zip`;hide();return;}
-  const fs=await api(`/api/projects/${pid}/files`);
-  const body=fs.length?fs.map(f=>`<button class="select-card" onclick="downloadOne(${pid},'${escAttr(f.path)}')"><b>${fileIcon(f.language)} ${esc(f.path)}</b><small>${esc(f.language)}</small></button>`).join(''):'<div class="empty-state">В проекте нет файлов.</div>';
-  modal(`<div class="download-modal"><div class="eyebrow">FILE</div><h2>Выберите файл</h2><div class="select-list">${body}</div></div>`);
+if(kind==='project'){location.href=`/api/projects/${pid}/download.zip`;hide();return;}
+const fs=await api(`/api/projects/${pid}/files`);
+const body=fs.length?fs.map(f=>`<button class="select-card" onclick="downloadOne(${pid},'${escAttr(f.path)}')"><b>${fileIcon(f.language)} ${esc(f.path)}</b><small>${esc(f.language)}</small></button>`).join(''):'<div class="empty-state">В проекте нет файлов.</div>';
+modal(`<div class="download-modal"><div class="eyebrow">FILE</div><h2>Выберите файл</h2><div class="select-list">${body}</div></div>`);
 }
 function downloadOne(pid,path){location.href=`/api/projects/${pid}/download/${path.split('/').map(encodeURIComponent).join('/')}`;hide()}
 async function terminalMenu(){
-  const ps=await api('/api/projects');
-  const sel=$('terminalProject');
-  if(sel){sel.innerHTML=ps.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join(''); if(project)sel.value=project.id;}
-  $('terminalPanel').classList.remove('hidden'); $('terminalCommand').focus();
+const ps=await api('/api/projects');
+const sel=$('terminalProject');
+if(sel){sel.innerHTML=ps.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join(''); if(project)sel.value=project.id;}
+$('terminalPanel').classList.remove('hidden'); $('terminalCommand').focus();
 }
 function closeTerminal(){$('terminalPanel').classList.add('hidden')}
 function terminalOutput(t){$('terminalOutput').textContent=t||'Готово.'}
 async function runTerminal(){const pid=Number($('terminalProject').value),cmd=$('terminalCommand').value.trim();if(!pid||!cmd)return;terminalOutput('▶ Выполнение...');try{const d=await api('/api/terminal',{method:'POST',body:JSON.stringify({project_id:pid,command:cmd})});terminalOutput((d.ok?'✓ ':'✕ ')+(d.output||'')+`\n[exit ${d.returncode??0}]`)}catch(e){terminalOutput('✕ '+e.message)}}
-async function terminalInstall(){const pid=Number($('terminalProject').value);if(!pid)return;modal(`<div class=\"download-modal\"><div class=\"eyebrow\">PYTHON PACKAGES</div><h2>Установить пакет</h2><p class=\"muted\">Пакет будет установлен только в выбранный проект.</p><input id=\"pipPackage\" class=\"modal-input\" placeholder=\"requests или requests==2.32.3\" autocomplete=\"off\"><div class=\"modal-actions\"><button class=\"secondary\" onclick=\"hide()\">Отмена</button><button class=\"primary\" onclick=\"installPackage(${pid})\">Установить</button></div></div>`);setTimeout(()=>$('pipPackage')?.focus(),30)}
+async function terminalInstall(){const pid=Number($('terminalProject').value);if(!pid)return;modal(`<div class="download-modal"><div class="eyebrow">PYTHON PACKAGES</div><h2>Установить пакет</h2><p class="muted">Пакет будет установлен только в выбранный проект.</p><input id="pipPackage" class="modal-input" placeholder="requests или requests==2.32.3" autocomplete="off"><div class="modal-actions"><button class="secondary" onclick="hide()">Отмена</button><button class="primary" onclick="installPackage(${pid})">Установить</button></div></div>`);setTimeout(()=>$('pipPackage')?.focus(),30)}
 async function installPackage(pid){const pkg=$('pipPackage')?.value.trim();if(!pkg)return;hide();terminalOutput('▶ pip install '+pkg+' ...');try{const d=await api(`/api/projects/${pid}/pip-install`,{method:'POST',body:JSON.stringify({package:pkg})});terminalOutput((d.ok?'✓ ':'✕ ')+(d.output||''))}catch(e){terminalOutput('✕ '+e.message)}}
-window.login=login;window.register=register;window.receivedFiles=receivedFiles;window.assignReceived=assignReceived;window.deleteReceived=deleteReceived;window.logout=logout;window.newProject=newProject;window.renameProject=renameProject;window.newFile=newFile;window.save=save;window.uploadFiles=uploadFiles;window.downloadCurrent=downloadCurrent;window.downloadZip=downloadZip;window.deleteFile=deleteFile;window.renameFile=renameFile;window.run=run;window.preview=preview;window.share=share;window.localShare=localShare;window.admin=admin;window.setRole=setRole;window.delUser=delUser;window.hide=hide;window.copyText=copyText;window.downloadMenu=downloadMenu;window.downloadFromProject=downloadFromProject;window.downloadOne=downloadOne;window.terminalMenu=terminalMenu;window.closeTerminal=closeTerminal;window.runTerminal=runTerminal;window.terminalInstall=terminalInstall;window.installPackage=installPackage;
-window.addEventListener('DOMContentLoaded',()=>{$('terminalCommand')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();runTerminal()}});$('loginBtn').addEventListener('click',login);$('registerBtn').addEventListener('click',register);$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});$('uploadInput').addEventListener('change',e=>{uploadFiles(e.target.files);e.target.value=''});$('langSelect').addEventListener('change',e=>setLanguage(e.target.value));$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));initEditor()});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();run()}});
-
 async function quickQR(){
-  try{
-    const d=await api('/api/local-share',{method:'POST'});
-    const url=d.share_url||d.cloud_url||(d.urls&&d.urls[0]);
-    if(!url || !d.token) throw new Error('Сервер не вернул ссылку обмена');
-    const qrUrl='/api/local-share/'+encodeURIComponent(d.token)+'/qr';
-    modal(`
-      <div class="qr-modal">
-        <div class="qr-kicker">QUICK SHARE</div>
-        <h2>Отправить файл</h2>
-        <p class="muted">Отсканируйте QR-код камерой телефона.</p>
-        <div class="qr-frame"><img src="${qrUrl}" alt="QR-код" onerror="this.parentElement.innerHTML='<div style="color:#c55">Не удалось загрузить QR</div>'"></div>
-        <div class="qr-url">${esc(url)}</div>
-        <div class="qr-actions">
-          <button class="primary" onclick="copyText('${escAttr(url)}')">Копировать ссылку</button>
-          <a class="secondary" href="${qrUrl}" target="_blank" rel="noopener">Открыть QR</a>
-        </div>
-        <div class="qr-note">Ссылка короткая и ведёт прямо на страницу отправки файлов.</div>
-      </div>`);
-  }catch(e){
-    alert('Не удалось создать QR-код: '+e.message);
-  }
+try{
+const d=await api('/api/local-share',{method:'POST'});
+const url=d.share_url||d.cloud_url||(d.urls&&d.urls[0]);
+if(!url||!d.token)throw new Error('Сервер не вернул ссылку обмена');
+const qrUrl='/api/local-share/'+encodeURIComponent(d.token)+'/qr';
+modal(`
+<div class="qr-modal">
+<div class="qr-kicker">QUICK SHARE</div>
+<h2>Отправить файл</h2>
+<p class="muted">Отсканируйте QR-код камерой телефона.</p>
+<div class="qr-frame"><img src="${qrUrl}" alt="QR-код" onerror="this.parentElement.innerHTML='<div style=\"color:#c55\">Не удалось загрузить QR</div>'"></div>
+<div class="qr-url">${esc(url)}</div>
+<div class="qr-actions">
+<button class="primary" onclick="copyText('${escAttr(url)}')">Копировать ссылку</button>
+<a class="secondary" href="${qrUrl}" target="_blank" rel="noopener">Открыть QR</a>
+</div>
+<div class="qr-note">Ссылка короткая и ведёт прямо на страницу отправки файлов.</div>
+</div>`);
+}catch(e){alert('Не удалось создать QR-код: '+e.message);}
 }
+window.login=login;window.register=register;window.receivedFiles=receivedFiles;window.assignReceived=assignReceived;window.deleteReceived=deleteReceived;window.logout=logout;window.newProject=newProject;window.renameProject=renameProject;window.newFile=newFile;window.save=save;window.uploadFiles=uploadFiles;window.downloadCurrent=downloadCurrent;window.downloadZip=downloadZip;window.deleteFile=deleteFile;window.renameFile=renameFile;window.run=run;window.preview=preview;window.share=share;window.localShare=localShare;window.admin=admin;window.setRole=setRole;window.delUser=delUser;window.hide=hide;window.copyText=copyText;window.downloadMenu=downloadMenu;window.downloadFromProject=downloadFromProject;window.downloadOne=downloadOne;window.terminalMenu=terminalMenu;window.closeTerminal=closeTerminal;window.runTerminal=runTerminal;window.terminalInstall=terminalInstall;window.installPackage=installPackage;window.quickQR=quickQR;
+window.addEventListener('DOMContentLoaded',()=>{$('terminalCommand')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();runTerminal()}});$('loginBtn').addEventListener('click',login);$('registerBtn').addEventListener('click',register);$('password').addEventListener('keydown',e=>{if(e.key==='Enter')login()});$('uploadInput').addEventListener('change',e=>{uploadFiles(e.target.files);e.target.value=''});$('langSelect').addEventListener('change',e=>setLanguage(e.target.value));$('menuBtn').addEventListener('click',()=>$('sidebar').classList.toggle('open'));initEditor()});window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();save()}if(e.ctrlKey&&e.key==='Enter'){e.preventDefault();run()}});
