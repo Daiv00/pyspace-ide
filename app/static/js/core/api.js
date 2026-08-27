@@ -126,6 +126,11 @@ const api = {
   adminAssignFile: (fileId, userId) =>
     api.post(`/api/admin/vault/files/${fileId}/assign`, { user_id: userId }),
   adminDeleteFile: (fileId) => api.del(`/api/admin/vault/files/${fileId}`),
+
+  // --- Обслуживание: самопинг и резервные копии ---
+  maintenanceStatus: () => api.get('/api/maintenance/status'),
+  maintenanceBackup: () => api.post('/api/maintenance/backup', {}),
+  maintenanceRestore: () => api.post('/api/maintenance/restore', {}),
 };
 
 export default api;

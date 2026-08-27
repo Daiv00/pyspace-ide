@@ -80,6 +80,33 @@ class Settings:
     enable_preview: bool = field(default_factory=lambda: _flag("PYSPACE_ENABLE_PREVIEW", True))
     shell: str = field(default_factory=lambda: os.getenv("PYSPACE_SHELL", "/bin/bash"))
 
+    # --- самопинг (чтобы бесплатный сервис Render не засыпал) ---
+    enable_keepalive: bool = field(default_factory=lambda: _flag("PYSPACE_KEEPALIVE", False))
+    keepalive_interval: int = field(
+        default_factory=lambda: _int("PYSPACE_KEEPALIVE_INTERVAL", 600)
+    )
+    keepalive_path: str = field(
+        default_factory=lambda: os.getenv("PYSPACE_KEEPALIVE_PATH", "/healthz")
+    )
+
+    # --- автобэкап данных в приватный репозиторий GitHub ---
+    backup_repo: str = field(
+        default_factory=lambda: os.getenv("PYSPACE_BACKUP_REPO", "").strip().strip("/")
+    )
+    backup_token: str = field(default_factory=lambda: os.getenv("PYSPACE_BACKUP_TOKEN", "").strip())
+    backup_branch: str = field(
+        default_factory=lambda: os.getenv("PYSPACE_BACKUP_BRANCH", "main").strip() or "main"
+    )
+    backup_path: str = field(
+        default_factory=lambda: (
+            os.getenv("PYSPACE_BACKUP_PATH", "backups/pyspace-data.tar.gz").strip().lstrip("/")
+            or "backups/pyspace-data.tar.gz"
+        )
+    )
+    backup_interval: int = field(default_factory=lambda: _int("PYSPACE_BACKUP_INTERVAL", 900))
+    backup_max_mb: int = field(default_factory=lambda: _int("PYSPACE_BACKUP_MAX_MB", 40))
+    backup_restore: bool = field(default_factory=lambda: _flag("PYSPACE_BACKUP_RESTORE", True))
+
     # --- первый администратор ---
     admin_user: str = field(default_factory=lambda: os.getenv("PYSPACE_ADMIN_USER", "").strip())
     admin_password: str = field(default_factory=lambda: os.getenv("PYSPACE_ADMIN_PASSWORD", ""))

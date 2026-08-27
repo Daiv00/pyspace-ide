@@ -6,15 +6,104 @@ import { state } from '../core/store.js';
 import { notify } from '../core/toast.js';
 
 let overview = null;
+let maintenance = null;
 
 export async function refresh() {
   const host = qs('#adminPanelBody');
   if (!host) return;
   try {
     overview = await api.adminOverview();
+    try {
+      maintenance = await api.maintenanceStatus();
+    } catch {
+      maintenance = null;
+    }
     renderSidebar();
   } catch (error) {
     clear(host).append(el('div', { class: 'empty', text: error.message }));
+  }
+}
+
+/** Время «сколько назад» из ISO-метки UTC. */
+function ago(iso) {
+  if (!iso) return 'ещё не было';
+  const delta = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (delta < 90) return 'только что';
+  if (delta < 3600) return `${Math.round(delta / 60)} мин назад`;
+  if (delta < 86400) return `${Math.round(delta / 3600)} ч назад`;
+  return `${Math.round(delta / 86400)} дн назад`;
+}
+
+function renderMaintenance(host) {
+  if (!maintenance) return;
+  const ping = maintenance.keepalive || {};
+  const copy = maintenance.backup || {};
+
+  const line = (label, value, good) => el('div', { class: 'row-between', style: { padding: '5px 2px' } }, [
+    el('span', { class: 'muted', style: { fontSize: 'var(--fs-sm)' }, text: label }),
+    el('span', { class: `chip ${good ? 'chip--success' : 'chip--warn'}`, text: value }),
+  ]);
+
+  host.append(
+    el('div', { class: 'eyebrow', style: { margin: '12px 2px 4px' }, text: 'Обслуживание' }),
+    line('Самопинг', ping.enabled ? `каждые ${Math.round((ping.interval || 0) / 60)} мин` : 'выключен', !!ping.enabled),
+    ping.enabled ? line('Последний пинг', ping.last_error ? 'ошибка' : ago(ping.last_at), !ping.last_error) : null,
+    line('Копии данных', copy.configured ? ago(copy.last_backup_at) : 'не настроены', !!copy.configured),
+  );
+
+  if (copy.configured) {
+    host.append(el('p', {
+      class: 'muted mono',
+      style: { fontSize: '10px', margin: '4px 2px', wordBreak: 'break-all' },
+      text: `${copy.repo} · ${copy.path}${maintenance.last_backup_size_human ? ` · ${maintenance.last_backup_size_human}` : ''}`,
+    }));
+    if (copy.last_error) {
+      host.append(el('p', { class: 'muted', style: { fontSize: '10px', color: 'var(--danger)' }, text: copy.last_error }));
+    }
+    host.append(el('div', { class: 'table__actions', style: { marginTop: '6px' } }, [
+      el('button', {
+        class: 'btn btn--sm btn--primary',
+        text: 'Сохранить копию',
+        onClick: async (event) => {
+          const button = event.currentTarget;
+          button.disabled = true;
+          try {
+            const result = await api.maintenanceBackup();
+            notify.ok(`Копия сохранена${result.size_human ? ` · ${result.size_human}` : ''}`);
+            await refresh();
+          } catch (error) {
+            notify.error(error.message);
+          } finally {
+            button.disabled = false;
+          }
+        },
+      }),
+      el('button', {
+        class: 'btn btn--sm',
+        text: 'Восстановить',
+        onClick: async () => {
+          const yes = await confirmSheet({
+            title: 'Восстановить данные из копии?',
+            message: 'Файлы проектов и база будут заменены содержимым последней копии. Несохранённые изменения потеряются, страницу нужно будет обновить.',
+            confirmText: 'Восстановить',
+            danger: true,
+          });
+          if (!yes) return;
+          try {
+            const result = await api.maintenanceRestore();
+            notify.ok(`Восстановлено файлов: ${result.result.restored}. Обновите страницу.`);
+          } catch (error) {
+            notify.error(error.message);
+          }
+        },
+      }),
+    ]));
+  } else {
+    host.append(el('p', {
+      class: 'muted',
+      style: { fontSize: '10px', margin: '4px 2px' },
+      text: 'Задайте PYSPACE_BACKUP_REPO и PYSPACE_BACKUP_TOKEN — данные будут сами уезжать в приватный репозиторий GitHub.',
+    }));
   }
 }
 
@@ -48,6 +137,8 @@ function renderSidebar() {
       text: environment.data_dir,
     }),
   );
+
+  renderMaintenance(host);
 }
 
 export async function openFull() {

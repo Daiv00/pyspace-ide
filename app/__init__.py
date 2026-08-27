@@ -8,6 +8,7 @@ from pathlib import Path
 
 from flask import Flask, g, request
 
+from . import backup, keepalive
 from .api import register_api
 from .auth import bootstrap_admin, current_user
 from .config import settings
@@ -22,6 +23,9 @@ __version__ = "5.0.0"
 
 def create_app() -> Flask:
     settings.ensure_dirs()
+    # Если контейнер стартовал с чистым диском (план Render без Persistent Disk),
+    # пробуем поднять данные из последней резервной копии ДО миграций.
+    backup.restore_on_start()
 
     app = Flask(__name__, static_folder="static", template_folder="templates")
     app.config.update(
@@ -55,6 +59,9 @@ def create_app() -> Flask:
                 "при редеплое. Подключите диск и укажите PYSPACE_DATA_DIR=/data.",
                 settings.data_dir,
             )
+
+    keepalive.start(app)
+    backup.start(app)
 
     register_error_handlers(app)
     register_api(app)
