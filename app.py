@@ -46,7 +46,6 @@ def init_db():
         if not existing:
             c.execute('INSERT INTO users(username,password_hash,role) VALUES(?,?,?)',(env_user,generate_password_hash(env_pw),'admin'))
         elif existing['role']!='admin':
-            # Keep the configured Render admin account as admin even when an old SQLite DB exists.
             c.execute('UPDATE users SET role=? WHERE id=?',('admin',existing['id']))
         c.commit()
     c.close()
@@ -76,7 +75,6 @@ def clean(p):
     parts=[x for x in p.split('/') if x not in ('','.')]
     if not parts or any(x=='..' for x in parts) or len(p)>240:
         raise ValueError('Недопустимый путь')
-    # Keep normal Unicode filenames, but remove characters that are unsafe on Windows/Linux.
     safe=[]
     for x in parts:
         x=re.sub(r'[<>:"|?*\\x00-\\x1f]','_',x).strip()
@@ -379,7 +377,6 @@ def local_share_upload(token):
     if text.strip():
         try:
             name=clean(text_name or 'message.txt')
-            # Text is always a file so it is preserved exactly like an uploaded file.
             x=share_path(token,name)
             x.parent.mkdir(parents=True,exist_ok=True)
             x.write_text(text,encoding='utf-8')
@@ -583,7 +580,7 @@ def pip_install(pid):
     except subprocess.TimeoutExpired:
         return jsonify(ok=False,returncode=-1,output='⏱ pip install превысил лимит 120 секунд.'),504
 
-# Terminal deliberately accepts a small, explicit command set instead of an arbitrary shell.
+# Terminal with expanded capabilities
 TERMINAL_RE=re.compile(r'^[A-Za-z0-9_./:@%+\-=,\[\]]+$')
 TERMINAL_CMDS={'pwd','ls','find','cat','head','tail','python','pip','python3'}
 
@@ -606,7 +603,9 @@ def parse_terminal(command):
             for a in args[1:]:
                 if not a.startswith('-') and (a.startswith('/') or a=='..' or a.startswith('../') or '/..' in a): raise ValueError('Доступ за пределы проекта запрещён')
     if args[0]=='pip':
-        if len(args)>1 and args[1] not in ('list','freeze','show','check','--version','-V'): raise ValueError('Разрешены только pip list, freeze, show, check и --version')
+        # Разрешаем install для удобства
+        if len(args)>1 and args[1] not in ('list','freeze','show','check','--version','-V','install'):
+            raise ValueError('Разрешены: pip list, freeze, show, check, install и --version')
     if args[0] in ('cat','head','tail','find','ls'):
         for a in args[1:]:
             if a.startswith('/') or a=='..' or a.startswith('../') or '/..' in a: raise ValueError('Доступ за пределы проекта запрещён')
@@ -621,7 +620,26 @@ def terminal():
     if len(command)>4000:return jsonify(ok=False,error='Команда слишком длинная'),413
     try: args=parse_terminal(command)
     except ValueError as e:return jsonify(ok=False,error=str(e)),400
-    work,env=project_env(pid)
+    
+    # Если это pip install, используем специальный эндпоинт для установки
+    if args[0] == 'pip' and len(args) > 1 and args[1] == 'install':
+        package = ' '.join(args[2:]) if len(args) > 2 else ''
+        if not package:
+            return jsonify(ok=False,error='Укажите пакет для установки'),400
+        # Перенаправляем на pip-install эндпоинт
+        try:
+            work,env = project_env(pid)
+            target = work / '.packages'
+            r = subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check',
+                 '--no-input', '--no-cache-dir', '--target', str(target)] + args[2:],
+                cwd=work, capture_output=True, text=True, timeout=120, env=env
+            )
+            return jsonify(ok=r.returncode==0, returncode=r.returncode, output=(r.stdout+r.stderr)[-16000:])
+        except subprocess.TimeoutExpired:
+            return jsonify(ok=False, returncode=-1, output='⏱ pip install превысил лимит 120 секунд.'),504
+    
+    work,env = project_env(pid)
     try:
         r=subprocess.run(args,cwd=work,capture_output=True,text=True,timeout=30,env=env)
         return jsonify(ok=r.returncode==0,returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
@@ -661,7 +679,6 @@ def run():
         packages=pdir(pid)/'.packages'
         env={'PATH':os.environ.get('PATH',''),'PYTHONIOENCODING':'utf-8','PYTHONUNBUFFERED':'1','HOME':str(work),'PYTHONPATH':str(packages)}
         try:
-            # No -I: project-local .packages must be importable.
             r=subprocess.run([sys.executable,str(script)],cwd=work,input=stdin_data,capture_output=True,text=True,timeout=TIMEOUT,env=env)
             return jsonify(ok=r.returncode==0,kind='python',returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
         except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.\nВозможна бесконечная input()/петля.'),504
