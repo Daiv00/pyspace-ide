@@ -1,306 +1,313 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#080b12"><title>PySpace IDE</title><link rel="stylesheet" href="/static/style.css?v=41"><script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script></head><body>
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#080b12"><title>PySpace IDE</title><link rel="stylesheet" href="/static/style.css?v=50"><script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script></head><body>
 <div id="auth" class="auth"><div class="auth-card"><div class="brand-mark">◈ <b>PySpace</b></div><div class="eyebrow">ONLINE CODE WORKSPACE</div><h1>Пиши. Запускай. Делись.</h1><p class="muted">Python, HTML, CSS и SQL в одном месте.</p><input id="username" autocomplete="username" placeholder="Логин"><input id="password" autocomplete="current-password" type="password" placeholder="Пароль"><div class="auth-actions"><button id="loginBtn" type="button" class="primary">Войти</button><button id="registerBtn" type="button" class="secondary">Создать аккаунт</button></div><div id="msg" class="status"></div></div></div>
-<div id="app" class="hidden"><header class="topbar"><div class="brand"><button id="menuBtn" class="icon-btn mobile-only">☰</button><div class="brand-mark small">◈</div><b>PySpace <span>IDE</span></b></div><div class="head-actions"><span id="who" class="user-pill"></span><button class="top-btn" onclick="localShare()">↗ Обмен</button><button id="admin" class="top-btn" onclick="admin()">Admin</button><button class="top-btn danger" onclick="logout()">Выйти</button></div></header>
-<div class="layout"><aside id="sidebar"><div class="side-title"><span>WORKSPACE</span><button class="icon-btn" onclick="newProject()">＋</button></div><div id="projects"></div><div class="side-title files-title"><span>FILES</span><button class="icon-btn" onclick="newFile()">＋</button></div><div id="files"></div><div class="side-tools">
+
+<div id="app" class="hidden">
+<header class="topbar"><div class="brand"><button id="menuBtn" class="icon-btn mobile-only">☰</button><div class="brand-mark small">◈</div><b>PySpace <span>IDE</span></b></div><div class="head-actions"><span id="who" class="user-pill"></span><button class="top-btn" onclick="localShare()">↗ Обмен</button><button id="admin" class="top-btn" onclick="admin()">Admin</button><button class="top-btn danger" onclick="logout()">Выйти</button></div></header>
+
+<div class="layout">
+<aside id="sidebar"><div class="side-title"><span>WORKSPACE</span><button class="icon-btn" onclick="newProject()">＋</button></div><div id="projects"></div><div class="side-title files-title"><span>FILES</span><button class="icon-btn" onclick="newFile()">＋</button></div><div id="files"></div>
+<div class="side-tools">
 <input id="zipUploadInput" type="file" accept=".zip,application/zip" hidden>
 <button class="side-tool zip-tool" id="uploadZipBtn" type="button">▣ Загрузить ZIP</button>
 <button onclick="newFile()">＋ Новый файл</button><button onclick="uploadInput.click()">↑ Загрузить с устройства</button><button onclick="downloadMenu('file')">↓ Скачать файл</button><button onclick="downloadMenu('project')">▣ Скачать проект</button><button onclick="terminalMenu()">⌘ Терминал</button><button onclick="renameProject()">Переименовать проект</button><button onclick="renameFile()">Переименовать файл</button><button onclick="deleteFile()" class="danger-text">Удалить</button><button onclick="share()">👥 Дать доступ</button><button onclick="receivedFiles()">📥 Переданные файлы</button><input id="uploadInput" type="file" multiple hidden></div></aside>
+
 <main>
-    <div class="editorbar">
-        <div class="tab"><span class="dot"></span><span id="tab">main.py</span></div>
-        <div class="editor-actions">
-            <select id="langSelect" class="lang">
-                <option value="python">Python</option>
-                <option value="html">HTML</option>
-                <option value="css">CSS</option>
-                <option value="sql">SQL</option>
-                <option value="javascript">JavaScript</option>
-                <option value="json">JSON</option>
-                <option value="plaintext">TXT</option>
-            </select>
-            <button class="tool-btn" onclick="save()">Сохранить</button>
-            <button class="tool-btn" onclick="preview()">Предпросмотр</button>
-            <button class="run-btn" onclick="run()">▶ Запустить</button>
-        </div>
-    </div>
-    
-    <div class="resizable-container" id="mainContainer">
-        <!-- Панель редактора -->
-        <div class="resize-panel editor-panel" id="editorPanel" style="flex:3;min-height:150px;">
-            <div class="panel-content"><div id="editor" style="width:100%;height:100%;"></div></div>
-        </div>
-        <div class="resize-handle" id="editorResize"></div>
-        
-        <!-- Панель консоли -->
-        <div class="resize-panel console-panel" id="consolePanel" style="flex:1.5;min-height:100px;">
-            <div class="panel-content">
-                <div class="console" style="height:100%;">
-                    <div class="console-head">
-                        <div><b>ТЕСТОВЫЕ ДАННЫЕ</b><span>stdin • для input()</span></div>
-                        <button class="clear-btn" onclick="out('')">Очистить вывод</button>
-                    </div>
-                    <div class="console-grid" style="flex:1;min-height:0;">
-                        <textarea id="stdin" placeholder="Введите данные для input(), каждое значение с новой строки. Например:\n5\n10"></textarea>
-                        <div class="output">
-                            <div class="output-title">OUTPUT</div>
-                            <pre id="out">Готово.</pre>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="resize-handle" id="consoleResize"></div>
-        
-        <!-- Панель терминала -->
-        <div class="resize-panel terminal-panel hidden" id="terminalPanel" style="flex:1;min-height:100px;">
-            <div class="panel-content" style="display:flex;flex-direction:column;height:100%;">
-                <div class="terminal-head">
-                    <div><b>ТЕРМИНАЛ</b><span>команды выполняются внутри выбранного проекта</span></div>
-                    <button class="clear-btn" onclick="closeTerminal()">Скрыть</button>
-                </div>
-                <div class="terminal-toolbar">
-                    <select id="terminalProject"></select>
-                    <button class="tool-btn" onclick="terminalInstall()">pip install</button>
-                </div>
-                <div id="terminalOutput" class="terminal-output" style="flex:1;overflow:auto;min-height:50px;">Готово.</div>
-                <div class="terminal-row">
-                    <span>$</span>
-                    <input id="terminalCommand" placeholder="python --version или pip list" autocomplete="off">
-                    <button class="run-btn" onclick="runTerminal()">Выполнить</button>
-                </div>
-            </div>
-        </div>
-    </div>
-</main></div></div>
+<div class="editorbar">
+<div class="tab"><span class="dot"></span><span id="tab">main.py</span></div>
+<div class="editor-actions">
+<select id="langSelect" class="lang">
+<option value="python">Python</option><option value="html">HTML</option><option value="css">CSS</option><option value="sql">SQL</option><option value="javascript">JavaScript</option><option value="json">JSON</option><option value="plaintext">TXT</option>
+</select>
+<button class="tool-btn" onclick="save()">Сохранить</button>
+<button class="tool-btn" onclick="preview()">Предпросмотр</button>
+<button class="run-btn" onclick="run()">▶ Запустить</button>
+</div>
+</div>
+
+<!-- ГЛАВНЫЙ КОНТЕЙНЕР С РЕЗИНОВЫМИ ПАНЕЛЯМИ -->
+<div class="resizable-container" id="mainContainer">
+
+<!-- ПАНЕЛЬ 1: РЕДАКТОР -->
+<div class="resize-panel" id="panel-editor" data-min="100" style="flex:3;min-height:100px;">
+<div class="panel-content"><div id="editor" style="width:100%;height:100%;"></div></div>
+</div>
+<div class="resize-handle horizontal" data-target="panel-editor"></div>
+
+<!-- ПАНЕЛЬ 2: КОНСОЛЬ -->
+<div class="resize-panel" id="panel-console" data-min="80" style="flex:1.5;min-height:80px;">
+<div class="panel-content">
+<div class="console" style="height:100%;display:flex;flex-direction:column;">
+<div class="console-head"><div><b>ТЕСТОВЫЕ ДАННЫЕ</b><span>stdin • для input()</span></div><button class="clear-btn" onclick="out('')">Очистить вывод</button></div>
+<div class="console-grid" style="flex:1;min-height:0;display:grid;grid-template-columns:34% 66%;">
+<textarea id="stdin" placeholder="Введите данные для input(), каждое значение с новой строки. Например:\n5\n10"></textarea>
+<div class="output" style="display:flex;flex-direction:column;min-height:0;">
+<div class="output-title">OUTPUT</div>
+<pre id="out" style="flex:1;overflow:auto;margin:0;padding:10px 12px;white-space:pre-wrap;word-break:break-word;font:13px/1.5 ui-monospace,monospace;">Готово.</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="resize-handle horizontal" data-target="panel-console"></div>
+
+<!-- ПАНЕЛЬ 3: ТЕРМИНАЛ -->
+<div class="resize-panel" id="panel-terminal" data-min="80" style="flex:1;min-height:80px;display:none;">
+<div class="panel-content" style="display:flex;flex-direction:column;height:100%;">
+<div class="terminal-head"><div><b>ТЕРМИНАЛ</b><span>команды выполняются внутри выбранного проекта</span></div><button class="clear-btn" onclick="closeTerminal()">Скрыть</button></div>
+<div class="terminal-toolbar"><select id="terminalProject"></select><button class="tool-btn" onclick="terminalInstall()">pip install</button></div>
+<div id="terminalOutput" class="terminal-output" style="flex:1;overflow:auto;min-height:50px;padding:10px 12px;white-space:pre-wrap;word-break:break-word;font:12px/1.5 ui-monospace,monospace;">Готово.</div>
+<div class="terminal-row" style="display:grid;grid-template-columns:auto 1fr auto;gap:7px;align-items:center;padding:8px 10px;border-top:1px solid var(--line);flex-shrink:0;">
+<span style="color:var(--accent2);font-family:monospace;">$</span>
+<input id="terminalCommand" placeholder="python --version или pip list" autocomplete="off" style="min-width:0;background:#0b0f15;color:#fff;border:1px solid var(--line);border-radius:8px;padding:9px;outline:none;">
+<button class="run-btn" onclick="runTerminal()">Выполнить</button>
+</div>
+</div>
+</div>
+
+</div><!-- конец resizable-container -->
+</main>
+</div><!-- конец layout -->
+</div><!-- конец app -->
+
 <div id="modal" class="modal hidden"><div class="modalcard"><button class="close" onclick="hide()">×</button><div id="body"></div></div></div>
-<script src="/static/app.js?v=41"></script>
+
+<script src="/static/app.js?v=50"></script>
 <script>
+// === ZIP UPLOAD ===
 (function(){
- const input=document.getElementById('zipUploadInput'),btn=document.getElementById('uploadZipBtn');
- if(!input||!btn)return;
- btn.onclick=()=>input.click();
- input.onchange=async()=>{
-   const file=input.files[0]; if(!file)return;
-   const fd=new FormData();fd.append('file',file);
-   btn.disabled=true;btn.textContent='Создание проекта...';
-   try{
-     const r=await fetch('/api/projects/upload-zip',{method:'POST',body:fd,credentials:'same-origin'});
-     const contentType=(r.headers.get('content-type')||'').toLowerCase();
-     let d;
-     if(contentType.includes('application/json')){
-       d=await r.json();
-     }else{
-       const raw=await r.text();
-       const short=raw.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,500);
-       throw new Error(`Сервер вернул ${r.status} ${r.statusText}, а не JSON${short?': '+short:''}`);
-     }
-     if(!r.ok || d.ok===false)throw new Error(d.error||d.message||`Ошибка загрузки (${r.status})`);
-     window.currentProjectId=d.project_id;window.activeProjectId=d.project_id;
-     alert('✓ '+d.message);
-     if(typeof loadProjects==='function')await loadProjects();
-     const imported=await api('/api/projects');
-     const p=imported.find(x=>Number(x.id)===Number(d.project_id));
-     if(p && typeof selectProject==='function')await selectProject(p);
-   }catch(e){alert('Не удалось загрузить ZIP: '+e.message)}
-   finally{btn.disabled=false;btn.textContent='▣ Загрузить ZIP';input.value=''}
- };
+const input=document.getElementById('zipUploadInput'),btn=document.getElementById('uploadZipBtn');
+if(!input||!btn)return;
+btn.onclick=()=>input.click();
+input.onchange=async()=>{
+const file=input.files[0];if(!file)return;
+const fd=new FormData();fd.append('file',file);
+btn.disabled=true;btn.textContent='Создание проекта...';
+try{
+const r=await fetch('/api/projects/upload-zip',{method:'POST',body:fd,credentials:'same-origin'});
+const ct=(r.headers.get('content-type')||'').toLowerCase();
+let d;
+if(ct.includes('application/json')){d=await r.json();}
+else{const raw=await r.text();const short=raw.replace(/<[^>]*>/g,' ').replace(/\s+/g,' ').trim().slice(0,500);throw new Error('Сервер вернул '+r.status+' '+r.statusText+(short?': '+short:''));}
+if(!r.ok||d.ok===false)throw new Error(d.error||d.message||'Ошибка загрузки ('+r.status+')');
+alert('✓ '+d.message);
+if(typeof loadProjects==='function')await loadProjects();
+const imported=await api('/api/projects');
+const p=imported.find(x=>Number(x.id)===Number(d.project_id));
+if(p&&typeof selectProject==='function')await selectProject(p);
+}catch(e){alert('Не удалось загрузить ZIP: '+e.message);}
+finally{btn.disabled=false;btn.textContent='▣ Загрузить ZIP';input.value='';}
+};
 })();
 
 // === RESIZABLE PANELS ===
-let resizeData = null;
+let resizeData=null;
 
-function initResizable() {
-    const handles = document.querySelectorAll('.resize-handle');
-    
-    handles.forEach(handle => {
-        handle.addEventListener('mousedown', startResize);
-        handle.addEventListener('touchstart', startResizeTouch, { passive: false });
-    });
-    
-    // Восстанавливаем сохранённые размеры
-    try {
-        const saved = JSON.parse(localStorage.getItem('pyspace_panel_sizes') || '{}');
-        const container = document.getElementById('mainContainer');
-        if (container) {
-            const totalHeight = container.clientHeight;
-            let used = 0;
-            const panels = container.querySelectorAll('.resize-panel');
-            const flexValues = [];
-            panels.forEach(p => {
-                const key = p.id.replace('Panel', '').toLowerCase();
-                if (saved[key]) {
-                    p.style.flex = '0 0 ' + saved[key] + 'px';
-                    p.style.minHeight = saved[key] + 'px';
-                    p.style.maxHeight = saved[key] + 'px';
-                    used += saved[key];
-                } else {
-                    flexValues.push(p);
-                }
-            });
-            // Если не все панели восстановлены, распределяем оставшееся пространство
-            if (flexValues.length > 0 && used < totalHeight) {
-                const remaining = totalHeight - used;
-                const perPanel = Math.max(80, remaining / flexValues.length);
-                flexValues.forEach(p => {
-                    p.style.flex = '0 0 ' + perPanel + 'px';
-                    p.style.minHeight = perPanel + 'px';
-                    p.style.maxHeight = perPanel + 'px';
-                });
-            }
-        }
-        setTimeout(() => { if (window.ed) window.ed.layout(); }, 100);
-    } catch(e) {}
-}
-
-function startResize(e) {
-    e.preventDefault();
-    const handle = e.target.closest('.resize-handle');
-    if (!handle) return;
-    
-    const panel = handle.previousElementSibling;
-    if (!panel || !panel.classList.contains('resize-panel')) return;
-    
-    const container = handle.closest('.resizable-container');
-    if (!container) return;
-    
-    const startY = e.clientY;
-    const startHeight = panel.offsetHeight;
-    const minHeight = 80;
-    const maxHeight = container.clientHeight - 200;
-    
-    resizeData = { handle, panel, container, startY, startHeight, minHeight, maxHeight };
-    handle.classList.add('dragging');
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'ns-resize';
-    
-    document.addEventListener('mousemove', onResizeMove);
-    document.addEventListener('mouseup', onResizeEnd);
-}
-
-function startResizeTouch(e) {
-    e.preventDefault();
-    const touch = e.touches[0];
-    const handle = e.target.closest('.resize-handle');
-    if (!handle) return;
-    
-    const panel = handle.previousElementSibling;
-    if (!panel || !panel.classList.contains('resize-panel')) return;
-    
-    const container = handle.closest('.resizable-container');
-    if (!container) return;
-    
-    const startY = touch.clientY;
-    const startHeight = panel.offsetHeight;
-    const minHeight = 80;
-    const maxHeight = container.clientHeight - 200;
-    
-    resizeData = { handle, panel, container, startY, startHeight, minHeight, maxHeight, isTouch: true };
-    handle.classList.add('dragging');
-    
-    document.addEventListener('touchmove', onResizeMoveTouch, { passive: false });
-    document.addEventListener('touchend', onResizeEndTouch, { passive: false });
-}
-
-function onResizeMove(e) {
-    if (!resizeData) return;
-    const delta = e.clientY - resizeData.startY;
-    applyResize(delta);
-}
-
-function onResizeMoveTouch(e) {
-    e.preventDefault();
-    if (!resizeData) return;
-    const touch = e.touches[0];
-    const delta = touch.clientY - resizeData.startY;
-    applyResize(delta);
-}
-
-function applyResize(delta) {
-    const { panel, minHeight, maxHeight } = resizeData;
-    let newHeight = Math.max(minHeight, resizeData.startHeight + delta);
-    newHeight = Math.min(maxHeight, newHeight);
-    
-    panel.style.flex = '0 0 ' + newHeight + 'px';
-    panel.style.minHeight = newHeight + 'px';
-    panel.style.maxHeight = newHeight + 'px';
-    
-    if (window.ed) setTimeout(() => window.ed.layout(), 10);
-}
-
-function onResizeEnd() {
-    if (!resizeData) return;
-    resizeData.handle.classList.remove('dragging');
-    document.body.style.userSelect = '';
-    document.body.style.cursor = '';
-    savePanelSizes();
-    resizeData = null;
-    document.removeEventListener('mousemove', onResizeMove);
-    document.removeEventListener('mouseup', onResizeEnd);
-}
-
-function onResizeEndTouch() {
-    if (!resizeData) return;
-    resizeData.handle.classList.remove('dragging');
-    savePanelSizes();
-    resizeData = null;
-    document.removeEventListener('touchmove', onResizeMoveTouch);
-    document.removeEventListener('touchend', onResizeEndTouch);
-}
-
-function savePanelSizes() {
-    try {
-        const sizes = {};
-        document.querySelectorAll('.resize-panel').forEach(panel => {
-            const key = panel.id.replace('Panel', '').toLowerCase();
-            const h = panel.offsetHeight;
-            if (h > 50) sizes[key] = h;
-        });
-        localStorage.setItem('pyspace_panel_sizes', JSON.stringify(sizes));
-    } catch(e) {}
-}
-
-// Инициализируем после загрузки
-window.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initResizable, 300);
+function initResizable(){
+const handles=document.querySelectorAll('.resize-handle');
+handles.forEach(h=>{
+h.addEventListener('mousedown',startResize);
+h.addEventListener('touchstart',startResizeTouch,{passive:false});
 });
+restoreSizes();
+setTimeout(()=>{if(window.ed)window.ed.layout();},200);
+}
 
-// Обновляем редактор при ресайзе окна
-window.addEventListener('resize', () => {
-    if (window.ed) setTimeout(() => window.ed.layout(), 50);
+function restoreSizes(){
+try{
+const saved=JSON.parse(localStorage.getItem('pyspace_panel_sizes_v2')||'{}');
+const container=document.getElementById('mainContainer');
+if(!container)return;
+const panels=container.querySelectorAll('.resize-panel');
+const totalHeight=container.clientHeight;
+let used=0;
+let flexPanels=[];
+panels.forEach(p=>{
+const key=p.id.replace('panel-','');
+if(saved[key]){
+const h=Math.max(80,saved[key]);
+p.style.flex='0 0 '+h+'px';
+p.style.minHeight=h+'px';
+p.style.maxHeight=h+'px';
+used+=h;
+}else{
+flexPanels.push(p);
+}
 });
+if(flexPanels.length>0&&used<totalHeight){
+const remaining=Math.max(80,totalHeight-used);
+const per=Math.max(80,remaining/flexPanels.length);
+flexPanels.forEach(p=>{
+p.style.flex='0 0 '+per+'px';
+p.style.minHeight=per+'px';
+p.style.maxHeight=per+'px';
+});
+}
+}catch(e){}
+}
 
-// Переопределяем terminalMenu чтобы показывать панель с правильными размерами
-const origTerminalMenu = window.terminalMenu;
-window.terminalMenu = async function() {
-    await origTerminalMenu();
-    setTimeout(() => {
-        const panel = document.getElementById('terminalPanel');
-        if (panel) {
-            panel.style.display = 'flex';
-            panel.style.flex = '0 0 200px';
-            panel.style.minHeight = '100px';
-            panel.style.maxHeight = '400px';
-            setTimeout(() => {
-                if (window.ed) window.ed.layout();
-                savePanelSizes();
-            }, 50);
-        }
-    }, 50);
+function startResize(e){
+e.preventDefault();
+const handle=e.target.closest('.resize-handle');
+if(!handle)return;
+const panelId=handle.dataset.target;
+const panel=document.getElementById(panelId);
+if(!panel)return;
+const container=handle.closest('.resizable-container');
+if(!container)return;
+const startY=e.clientY;
+const startHeight=panel.offsetHeight;
+const minHeight=parseInt(panel.dataset.min)||80;
+const maxHeight=container.clientHeight-200;
+resizeData={handle,panel,container,startY,startHeight,minHeight,maxHeight};
+handle.classList.add('dragging');
+document.body.style.userSelect='none';
+document.body.style.cursor='ns-resize';
+document.addEventListener('mousemove',onResizeMove);
+document.addEventListener('mouseup',onResizeEnd);
+}
+
+function startResizeTouch(e){
+e.preventDefault();
+const touch=e.touches[0];
+const handle=e.target.closest('.resize-handle');
+if(!handle)return;
+const panelId=handle.dataset.target;
+const panel=document.getElementById(panelId);
+if(!panel)return;
+const container=handle.closest('.resizable-container');
+if(!container)return;
+const startY=touch.clientY;
+const startHeight=panel.offsetHeight;
+const minHeight=parseInt(panel.dataset.min)||80;
+const maxHeight=container.clientHeight-200;
+resizeData={handle,panel,container,startY,startHeight,minHeight,maxHeight,isTouch:true};
+handle.classList.add('dragging');
+document.addEventListener('touchmove',onResizeMoveTouch,{passive:false});
+document.addEventListener('touchend',onResizeEndTouch,{passive:false});
+}
+
+function onResizeMove(e){
+if(!resizeData)return;
+const delta=e.clientY-resizeData.startY;
+applyResize(delta);
+}
+
+function onResizeMoveTouch(e){
+e.preventDefault();
+if(!resizeData)return;
+const touch=e.touches[0];
+const delta=touch.clientY-resizeData.startY;
+applyResize(delta);
+}
+
+function applyResize(delta){
+const {panel,minHeight,maxHeight}=resizeData;
+let newHeight=Math.max(minHeight,resizeData.startHeight+delta);
+newHeight=Math.min(maxHeight,newHeight);
+panel.style.flex='0 0 '+newHeight+'px';
+panel.style.minHeight=newHeight+'px';
+panel.style.maxHeight=newHeight+'px';
+if(window.ed)setTimeout(()=>window.ed.layout(),10);
+}
+
+function onResizeEnd(){
+if(!resizeData)return;
+resizeData.handle.classList.remove('dragging');
+document.body.style.userSelect='';
+document.body.style.cursor='';
+saveSizes();
+resizeData=null;
+document.removeEventListener('mousemove',onResizeMove);
+document.removeEventListener('mouseup',onResizeEnd);
+}
+
+function onResizeEndTouch(){
+if(!resizeData)return;
+resizeData.handle.classList.remove('dragging');
+saveSizes();
+resizeData=null;
+document.removeEventListener('touchmove',onResizeMoveTouch);
+document.removeEventListener('touchend',onResizeEndTouch);
+}
+
+function saveSizes(){
+try{
+const sizes={};
+document.querySelectorAll('.resize-panel').forEach(p=>{
+const key=p.id.replace('panel-','');
+const h=p.offsetHeight;
+if(h>50)sizes[key]=h;
+});
+localStorage.setItem('pyspace_panel_sizes_v2',JSON.stringify(sizes));
+}catch(e){}
+}
+
+// Открыть/закрыть терминал с сохранением размера
+window.terminalMenu=async function(){
+const panel=document.getElementById('panel-terminal');
+if(!panel)return;
+panel.style.display='flex';
+panel.classList.remove('hidden');
+// Восстанавливаем сохранённый размер или ставим 200px
+try{
+const saved=JSON.parse(localStorage.getItem('pyspace_panel_sizes_v2')||'{}');
+if(saved.terminal){
+panel.style.flex='0 0 '+saved.terminal+'px';
+panel.style.minHeight=saved.terminal+'px';
+panel.style.maxHeight=saved.terminal+'px';
+}else{
+panel.style.flex='0 0 200px';
+panel.style.minHeight='80px';
+panel.style.maxHeight='400px';
+}
+}catch(e){
+panel.style.flex='0 0 200px';
+panel.style.minHeight='80px';
+panel.style.maxHeight='400px';
+}
+// Загружаем проекты в селект
+try{
+const ps=await api('/api/projects');
+const sel=document.getElementById('terminalProject');
+if(sel){
+sel.innerHTML=ps.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
+if(window.project)sel.value=window.project.id;
+}
+}catch(e){}
+setTimeout(()=>{if(window.ed)window.ed.layout();},50);
+document.getElementById('terminalCommand')?.focus();
 };
 
-// Переопределяем closeTerminal чтобы скрывать панель
-const origCloseTerminal = window.closeTerminal;
-window.closeTerminal = function() {
-    const panel = document.getElementById('terminalPanel');
-    if (panel) {
-        panel.style.display = 'none';
-        panel.classList.add('hidden');
-        setTimeout(() => {
-            if (window.ed) window.ed.layout();
-            savePanelSizes();
-        }, 50);
-    }
-    if (origCloseTerminal) origCloseTerminal();
+window.closeTerminal=function(){
+const panel=document.getElementById('panel-terminal');
+if(panel){
+panel.style.display='none';
+panel.classList.add('hidden');
+setTimeout(()=>{if(window.ed)window.ed.layout();saveSizes();},50);
+}
+};
+
+window.addEventListener('DOMContentLoaded',()=>{
+setTimeout(initResizable,300);
+document.getElementById('terminalCommand')?.addEventListener('keydown',e=>{
+if(e.key==='Enter'){e.preventDefault();window.runTerminal();}
+});
+document.getElementById('loginBtn')?.addEventListener('click',window.login);
+document.getElementById('registerBtn')?.addEventListener('click',window.register);
+document.getElementById('password')?.addEventListener('keydown',e=>{if(e.key==='Enter')window.login();});
+document.getElementById('uploadInput')?.addEventListener('change',e=>{window.uploadFiles(e.target.files);e.target.value='';});
+document.getElementById('langSelect')?.addEventListener('change',e=>window.setLanguage(e.target.value));
+document.getElementById('menuBtn')?.addEventListener('click',()=>document.getElementById('sidebar')?.classList.toggle('open'));
+window.initEditor();
+});
+
+window.addEventListener('resize',()=>{
+if(window.ed)setTimeout(()=>window.ed.layout(),50);
+});
+
+// Перехват ошибок для отладки
+window.onerror=function(msg,url,line,col,error){
+console.error('Global error:',msg,error);
 };
 </script>
 </body></html>
