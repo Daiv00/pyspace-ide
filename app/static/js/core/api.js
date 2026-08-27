@@ -108,6 +108,12 @@ const api = {
   pipList: (id) => api.get(`/api/projects/${id}/pip`),
   terminalInfo: (id) => api.get(`/api/projects/${id}/terminal`),
 
+  // --- Веб-приложения проекта ---
+  webappStatus: (id) => api.get(`/api/projects/${id}/webapp`),
+  webappStart: (id, path) => api.post(`/api/projects/${id}/webapp/start`, { path }),
+  webappStop: (id) => api.post(`/api/projects/${id}/webapp/stop`, {}),
+  webappLogs: (id) => api.get(`/api/projects/${id}/webapp/logs`),
+
   // --- Обмен ---
   drops: () => api.get('/api/drops'),
   createDrop: (label, projectId) => api.post('/api/drops', { label, project_id: projectId }),
@@ -129,6 +135,7 @@ const api = {
 
   // --- Обслуживание: самопинг и резервные копии ---
   maintenanceStatus: () => api.get('/api/maintenance/status'),
+  maintenancePing: () => api.post('/api/maintenance/ping', {}),
   maintenanceBackup: () => api.post('/api/maintenance/backup', {}),
   maintenanceRestore: () => api.post('/api/maintenance/restore', {}),
 };

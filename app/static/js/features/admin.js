@@ -46,10 +46,52 @@ function renderMaintenance(host) {
 
   host.append(
     el('div', { class: 'eyebrow', style: { margin: '12px 2px 4px' }, text: 'Обслуживание' }),
-    line('Самопинг', ping.enabled ? `каждые ${Math.round((ping.interval || 0) / 60)} мин` : 'выключен', !!ping.enabled),
-    ping.enabled ? line('Последний пинг', ping.last_error ? 'ошибка' : ago(ping.last_at), !ping.last_error) : null,
+    line(
+      'Самопинг',
+      ping.enabled && ping.url
+        ? `каждые ${Math.round((ping.interval || 0) / 60)} мин`
+        : (ping.reason || 'выключен'),
+      Boolean(ping.enabled && ping.url),
+    ),
+    ping.enabled && ping.url
+      ? line('Последний пинг', ping.last_error ? 'ошибка' : ago(ping.last_at), !ping.last_error)
+      : null,
     line('Копии данных', copy.configured ? ago(copy.last_backup_at) : 'не настроены', !!copy.configured),
   );
+
+  if (ping.url) {
+    host.append(el('p', {
+      class: 'muted mono',
+      style: { fontSize: '10px', margin: '4px 2px', wordBreak: 'break-all' },
+      text: `${ping.url}${ping.source ? ` · адрес: ${ping.source}` : ''}${ping.count ? ` · пингов: ${ping.count}` : ''}`,
+    }));
+  }
+  if (ping.last_error) {
+    host.append(el('p', {
+      class: 'muted',
+      style: { fontSize: '10px', margin: '2px', color: 'var(--danger)' },
+      text: ping.last_error,
+    }));
+  }
+  host.append(el('div', { class: 'table__actions', style: { marginTop: '6px' } }, [
+    el('button', {
+      class: 'btn btn--sm',
+      text: 'Проверить пинг',
+      onClick: async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          const result = await api.maintenancePing();
+          notify.ok(`Ответ ${result.result.status} — сервис отвечает сам себе.`);
+          await refresh();
+        } catch (error) {
+          notify.error(error.message);
+        } finally {
+          button.disabled = false;
+        }
+      },
+    }),
+  ]));
 
   if (copy.configured) {
     host.append(el('p', {

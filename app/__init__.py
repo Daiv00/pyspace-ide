@@ -33,6 +33,10 @@ def create_app() -> Flask:
         MAX_CONTENT_LENGTH=settings.max_upload_mb * 1024 * 1024,
         JSON_SORT_KEYS=False,
         PERMANENT_SESSION_LIFETIME=dt.timedelta(days=settings.session_days),
+        # Своё имя cookie: приложения проектов, которые IDE отдаёт через /live/,
+        # почти всегда тоже Flask и тоже используют cookie «session» — из-за
+        # совпадения имён их вход ломался.
+        SESSION_COOKIE_NAME="pyspace_session",
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=not settings.is_dev,

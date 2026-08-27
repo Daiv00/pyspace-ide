@@ -21,6 +21,7 @@ import * as tabs from './features/tabs.js';
 import * as terminal from './features/terminal.js';
 import * as tree from './features/tree.js';
 import * as vault from './features/vault.js';
+import * as webapp from './features/webapp.js';
 
 /* ------------------------------------------------------------------ тема --- */
 
@@ -116,6 +117,8 @@ function openFilePalette() {
 function registerCommands() {
   registerAll([
     { title: 'Запустить активный файл', icon: '▶', group: 'Код', hint: 'Ctrl ⏎', run: () => runner.run() },
+    { title: 'Запустить активный файл как веб-сервер', icon: '🌐', group: 'Код', run: () => webapp.start() },
+    { title: 'Остановить веб-сервер проекта', icon: '⏹', group: 'Код', run: () => webapp.stop() },
     { title: 'Сохранить файл', icon: '💾', group: 'Файл', hint: 'Ctrl S', run: () => tabs.save() },
     { title: 'Сохранить все файлы', icon: '💾', group: 'Файл', hint: 'Ctrl ⇧ S', run: () => tabs.saveAll() },
     { title: 'Найти файл по имени', icon: '🔎', group: 'Файл', hint: 'Ctrl P', run: openFilePalette },
@@ -257,6 +260,7 @@ function wireChrome() {
   qs('#runBtn')?.addEventListener('click', () => runner.run());
   qs('#saveBtn')?.addEventListener('click', () => tabs.save());
   qs('#previewBtn')?.addEventListener('click', () => preview.toggle(state.activePath || ''));
+  qs('#serverBtn')?.addEventListener('click', () => webapp.toggle());
   qs('#terminalBtn')?.addEventListener('click', () => dock.show('terminal'));
   qs('#paletteBtn')?.addEventListener('click', () => openPalette());
   qs('#themeBtn')?.addEventListener('click', toggleTheme);
@@ -308,6 +312,7 @@ async function startWorkbench() {
   vault.init();
   admin.init();
   preview.init();
+  webapp.init();
   terminal.init();
   tree.enableDropzone();
 

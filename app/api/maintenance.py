@@ -27,6 +27,16 @@ def status():
     )
 
 
+@bp.post("/ping")
+@admin_required
+def ping_now():
+    """Проверить самопинг вручную."""
+    result = keepalive.ping_now()
+    if not result.get("ok"):
+        raise AppError(result.get("error") or "Пинг не удался.", 400)
+    return ok(result=result, keepalive=keepalive.status())
+
+
 @bp.post("/backup")
 @admin_required
 def make_backup():

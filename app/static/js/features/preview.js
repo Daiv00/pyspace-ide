@@ -5,6 +5,8 @@ import { notify } from '../core/toast.js';
 import * as editor from './editor.js';
 
 let currentPath = '';
+let externalUrl = '';
+let externalLabel = '';
 let watchTimer = null;
 let lastStamp = 0;
 let mobile = false;
@@ -21,8 +23,25 @@ export function isOpen() {
 }
 
 /** Открыть предпросмотр; без пути — ищем index.html или первый html. */
+/** Открыть в панели произвольный адрес — например работающий сервер проекта. */
+export function openUrl(url, label = '') {
+  if (!url) return;
+  externalUrl = url;
+  externalLabel = label;
+  currentPath = '';
+  const area = qs('#editorArea');
+  if (area) area.dataset.preview = 'true';
+  state.previewOpen = true;
+  prefs.set('previewOpen', true);
+  stopWatch();
+  reload();
+  setTimeout(() => editor.layout(), 80);
+}
+
 export function open(path = '') {
   if (!state.project) return;
+  externalUrl = '';
+  externalLabel = '';
   if (!state.features.preview) { notify.warn('Предпросмотр отключён администратором.'); return; }
 
   let target = path;
@@ -65,9 +84,15 @@ export function toggle(path = '') {
 export function reload() {
   const frame = qs('#previewFrame');
   if (!frame || !state.project) return;
+  const label = qs('#previewUrl');
+  if (externalUrl) {
+    // У работающего сервера свои адреса и cookie — кэш-хвост не добавляем.
+    frame.src = externalUrl;
+    if (label) label.textContent = externalLabel || externalUrl;
+    return;
+  }
   const url = `${urlFor(currentPath)}${currentPath.includes('?') ? '&' : '?'}_=${Date.now()}`;
   frame.src = url;
-  const label = qs('#previewUrl');
   if (label) label.textContent = urlFor(currentPath);
 }
 
@@ -94,7 +119,8 @@ export function init() {
   qs('#previewReload')?.addEventListener('click', reload);
   qs('#previewClose')?.addEventListener('click', close);
   qs('#previewOpen')?.addEventListener('click', () => {
-    if (state.project) window.open(urlFor(currentPath), '_blank', 'noopener');
+    if (!state.project) return;
+    window.open(externalUrl || urlFor(currentPath), '_blank', 'noopener');
   });
   qs('#previewDevice')?.addEventListener('click', () => {
     mobile = !mobile;
@@ -112,6 +138,8 @@ export function init() {
   on('project:selected', () => {
     lastStamp = 0;
     currentPath = '';
+    externalUrl = '';
+    externalLabel = '';
     if (isOpen()) open();
   });
 }

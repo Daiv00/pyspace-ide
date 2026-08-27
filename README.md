@@ -22,12 +22,13 @@
 | Терминал | Полноценный PTY-bash через WebSocket (xterm.js), `git`, `pip`, `python`, всё остальное |
 | Пакеты | `pip install` в папку `.packages` внутри проекта, список установленного |
 | Предпросмотр | HTML/CSS/JS проекта открывается рядом с кодом в песочнице (`sandbox` CSP) |
+| Веб-приложения | Flask и FastAPI запускаются сами: обычная кнопка «Запустить» распознаёт веб-сервер и переключается в режим сервера без таймаута, открывая приложение в предпросмотре через обратный прокси `/live/<токен>`. Файл без `app.run()` тоже поднимается — приложение подхватывает загрузчик |
 | Поиск | Поиск по имени файла и по содержимому в рамках проекта |
 | Обмен по QR | Комната передачи файлов: открыл QR-код телефоном и загрузил файлы без входа |
 | ZIP | Скачать проект или папку архивом, импортировать проект из ZIP |
 | Хранилище | Личное «хранилище» файлов пользователя вне проектов |
 | Админка | Пользователи, роли, лимиты, статистика — для роли `admin` |
-| Самопинг | Сервис сам дёргает свой публичный `/healthz` и не засыпает на бесплатном плане Render |
+| Самопинг | Включён сразу: сервис сам дёргает свой публичный `/healthz` и не засыпает на бесплатном плане Render. Адрес определяется сам — из переменных Render или из первого входящего запроса |
 | Автобэкап | База и все проекты уезжают в приватный репозиторий GitHub и сами возвращаются после деплоя |
 | Тема | Тёмная и светлая, палитра команд `Ctrl+K`, изменяемые размеры панелей |
 
@@ -68,6 +69,7 @@ python -m flask --app wsgi:app run --port 8000
 ```bash
 python tests/test_smoke.py          # полный путь пользователя по API
 python tests/test_backup.py         # архив → удаление данных → восстановление (без сети)
+python tests/test_autoserver.py     # распознавание Flask/FastAPI и самопинг (без сети)
 python tests/ws_check.py            # PTY-терминал по WebSocket (сервер должен быть запущен на :8099)
 ```
 
@@ -97,6 +99,7 @@ pyspace-ide/
 │  ├─ backup.py            копии данных в приватный репозиторий GitHub + восстановление
 │  ├─ qrcodes.py           генерация QR для комнат обмена
 │  ├─ sockets.py           WebSocket-канал /ws/terminal/<project_id>
+│  ├─ webapps.py           серверы проектов: распознавание Flask/FastAPI, порты, журналы
 │  ├─ api/                 REST: auth, projects, files, run, drops, admin
 │  ├─ views/               страницы: IDE, комната обмена, предпросмотр, /healthz
 │  ├─ templates/           base, ide, drop, error
@@ -107,7 +110,9 @@ pyspace-ide/
 │        ├─ features/      editor, tabs, tree, projects, runner, dock, terminal,
 │        │                 preview, search, packages, drops, vault, admin, auth
 │        └─ main.js        сборка приложения, горячие клавиши, палитра команд
-└─ tests/                  smoke-тест API и проверка терминала
+├─ tools/
+│  └─ webapp_boot.py       поднимает Flask/FastAPI из файла, в котором нет своего сервера
+└─ tests/                  smoke-тест API, копии, автозапуск серверов, проверка терминала
 ```
 
 ---
@@ -132,13 +137,16 @@ pyspace-ide/
 | `PYSPACE_STDIN_LIMIT` | `65536` | лимит STDIN |
 | `PYSPACE_ENABLE_PTY` | `1` | терминал |
 | `PYSPACE_ENABLE_PREVIEW` | `1` | живой предпросмотр |
+| `PYSPACE_ENABLE_WEBAPPS` | `1` | запуск веб-приложений проекта и прокси `/live` |
+| `PYSPACE_WEBAPP_LIMIT` | `3` | сколько веб-приложений может работать одновременно |
+| `PYSPACE_WEBAPP_BOOT_TIMEOUT` | `25` | сколько секунд ждать, пока сервер проекта откроет порт |
 | `PYSPACE_ENABLE_REGISTRATION` | `1` | открытая регистрация |
 | `PYSPACE_SHELL` | `/bin/bash` | оболочка терминала |
 | `PYSPACE_ADMIN_USER` / `PYSPACE_ADMIN_PASSWORD` | — | создать/повысить администратора при старте |
-| `PYSPACE_KEEPALIVE` | `0` | `1` — включить самопинг (в `render.yaml` уже включён) |
+| `PYSPACE_KEEPALIVE` | `1` | самопинг включён по умолчанию; `0` — выключить |
 | `PYSPACE_KEEPALIVE_INTERVAL` | `600` | интервал самопинга, с (минимум 60) |
 | `PYSPACE_KEEPALIVE_PATH` | `/healthz` | что именно дёргать |
-| `PYSPACE_PUBLIC_URL` | `RENDER_EXTERNAL_URL` | внешний адрес сервиса (на Render подставляется сам) |
+| `PYSPACE_PUBLIC_URL` | `RENDER_EXTERNAL_URL` | внешний адрес сервиса; если переменных нет, адрес берётся из первого входящего запроса |
 | `PYSPACE_BACKUP_REPO` | — | `логин/репозиторий` для копий (приватный) |
 | `PYSPACE_BACKUP_TOKEN` | — | GitHub PAT с правом Contents: Read and write |
 | `PYSPACE_BACKUP_BRANCH` | `main` | ветка в репозитории копий |

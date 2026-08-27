@@ -107,6 +107,16 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 .btn--run { background: var(--success); border-color: transparent; color: #062713; font-weight: 700; }
 .btn--run:hover:not(:disabled) { background: #5ce095; color: #062713; }
 
+/* Кнопка «Запустить сервер»: две иконки, видна ровно одна. */
+#serverBtn .server-icon-stop,
+#serverBtn[data-running="true"] .server-icon-play { display: none; }
+#serverBtn[data-running="true"] .server-icon-stop { display: block; }
+#serverBtn[data-running="true"] {
+  color: var(--success);
+  border-color: color-mix(in srgb, var(--success) 45%, transparent);
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
 .btn--sm { min-height: 28px; padding: 0 var(--sp-2); font-size: var(--fs-sm); }
 .btn--icon { min-width: 32px; padding: 0; }
 .btn--block { width: 100%; }

@@ -78,10 +78,17 @@ class Settings:
         default_factory=lambda: _flag("PYSPACE_ENABLE_REGISTRATION", True)
     )
     enable_preview: bool = field(default_factory=lambda: _flag("PYSPACE_ENABLE_PREVIEW", True))
+    enable_webapps: bool = field(default_factory=lambda: _flag("PYSPACE_ENABLE_WEBAPPS", True))
+    webapp_limit: int = field(default_factory=lambda: _int("PYSPACE_WEBAPP_LIMIT", 3))
+    webapp_boot_timeout: int = field(
+        default_factory=lambda: _int("PYSPACE_WEBAPP_BOOT_TIMEOUT", 25)
+    )
     shell: str = field(default_factory=lambda: os.getenv("PYSPACE_SHELL", "/bin/bash"))
 
     # --- самопинг (чтобы бесплатный сервис Render не засыпал) ---
-    enable_keepalive: bool = field(default_factory=lambda: _flag("PYSPACE_KEEPALIVE", False))
+    # Включён по умолчанию: на плане Free без него сервис засыпает через 15 минут.
+    # Выключить: PYSPACE_KEEPALIVE=0.
+    enable_keepalive: bool = field(default_factory=lambda: _flag("PYSPACE_KEEPALIVE", True))
     keepalive_interval: int = field(
         default_factory=lambda: _int("PYSPACE_KEEPALIVE_INTERVAL", 600)
     )

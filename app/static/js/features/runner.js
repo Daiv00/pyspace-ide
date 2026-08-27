@@ -9,6 +9,32 @@ import * as tabs from './tabs.js';
 const RUNNABLE = /\.(py|sql)$/i;
 const PREVIEWABLE = /\.(html|htm|css|js)$/i;
 
+// Признаки веб-сервера: такие файлы запускаются в режиме сервера, а не скрипта,
+// иначе процесс упирается в лимит времени и его гасят на середине работы.
+const WEB_FRAMEWORKS = [
+  { name: 'Flask', test: /^\s*[A-Za-z_]\w*\s*=\s*(?:flask\.)?Flask\s*\(/m },
+  { name: 'FastAPI', test: /^\s*[A-Za-z_]\w*\s*=\s*(?:fastapi\.)?FastAPI\s*\(/m },
+  { name: 'Uvicorn', test: /\buvicorn\.run\s*\(/ },
+  { name: 'aiohttp', test: /\bweb\.run_app\s*\(/ },
+  { name: 'http.server', test: /\bserve_forever\s*\(/ },
+];
+
+/** Текст без строк и комментариев: упоминание в комментарии — не запуск сервера. */
+function codeOnly(source) {
+  return source
+    .replace(/["']{3}/g, '')
+    .replace(/"[^"\n]*"|'[^'\n]*'/g, '""')
+    .replace(/#[^\n]*/g, '');
+}
+
+/** Какой веб-фреймворк виден в тексте файла (или null). */
+export function detectFramework(source = '') {
+  if (!source) return null;
+  const code = codeOnly(source);
+  const found = WEB_FRAMEWORKS.find((item) => item.test.test(code));
+  return found ? found.name : null;
+}
+
 let running = false;
 
 export function log(text, kind = '') {
@@ -54,6 +80,28 @@ export async function run(path = state.activePath) {
   }
 
   await tabs.save(path, { silent: true });
+
+  // Веб-сервер (Flask, FastAPI…) обычным запуском не поднять: он не завершается
+  // сам и упирается в лимит времени. Переключаемся в режим сервера сами.
+  if (/\.py$/i.test(path)) {
+    let source = tabs.find(path)?.saved;
+    if (source === undefined) {
+      try {
+        const { file } = await api.readFile(state.project.id, path);
+        source = file.content || '';
+      } catch { source = ''; }
+    }
+    const framework = detectFramework(source);
+    if (framework) {
+      const webapp = await import('./webapp.js');
+      notify.info(`${framework}: переключился на режим сервера.`);
+      await webapp.start(path, {
+        note: `ℹ ${path}: похоже на веб-сервер (${framework}) — запускаю в режиме сервера без лимита времени.`,
+      });
+      return;
+    }
+  }
+
   dock.show('output');
   dock.expand();
   reset('');
