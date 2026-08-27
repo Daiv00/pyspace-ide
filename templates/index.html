@@ -9,7 +9,19 @@
 <div class="side-tools">
 <input id="zipUploadInput" type="file" accept=".zip,application/zip" hidden>
 <button class="side-tool zip-tool" id="uploadZipBtn" type="button">▣ Загрузить ZIP</button>
-<button onclick="newFile()">＋ Новый файл</button><button onclick="uploadInput.click()">↑ Загрузить с устройства</button><button onclick="downloadMenu('file')">↓ Скачать файл</button><button onclick="downloadMenu('project')">▣ Скачать проект</button><button onclick="terminalMenu()">⌘ Терминал</button><button onclick="renameProject()">Переименовать проект</button><button onclick="renameFile()">Переименовать файл</button><button onclick="deleteFile()" class="danger-text">Удалить</button><button onclick="share()">👥 Дать доступ</button><button onclick="receivedFiles()">📥 Переданные файлы</button><input id="uploadInput" type="file" multiple hidden></div></aside>
+<button onclick="newFile()">＋ Новый файл</button>
+<button onclick="uploadInput.click()">↑ Загрузить с устройства</button>
+<button onclick="downloadMenu('file')">↓ Скачать файл</button>
+<button onclick="downloadMenu('project')">▣ Скачать проект</button>
+<button onclick="terminalMenu()">⌘ Терминал</button>
+<button onclick="renameProject()">Переименовать проект</button>
+<button onclick="renameFile()">Переименовать файл</button>
+<button onclick="deleteProject()" class="danger-text">🗑 Удалить проект</button>
+<button onclick="deleteFile()" class="danger-text">Удалить файл</button>
+<button onclick="share()">👥 Дать доступ</button>
+<button onclick="receivedFiles()">📥 Переданные файлы</button>
+<input id="uploadInput" type="file" multiple hidden>
+</div></aside>
 
 <main>
 <div class="editorbar">
@@ -248,7 +260,6 @@ const panel=document.getElementById('panel-terminal');
 if(!panel)return;
 panel.style.display='flex';
 panel.classList.remove('hidden');
-// Восстанавливаем сохранённый размер или ставим 200px
 try{
 const saved=JSON.parse(localStorage.getItem('pyspace_panel_sizes_v2')||'{}');
 if(saved.terminal){
@@ -265,7 +276,6 @@ panel.style.flex='0 0 200px';
 panel.style.minHeight='80px';
 panel.style.maxHeight='400px';
 }
-// Загружаем проекты в селект
 try{
 const ps=await api('/api/projects');
 const sel=document.getElementById('terminalProject');
@@ -287,6 +297,24 @@ setTimeout(()=>{if(window.ed)window.ed.layout();saveSizes();},50);
 }
 };
 
+// === УДАЛЕНИЕ ПРОЕКТА ===
+window.deleteProject=async function(){
+if(!window.project)return alert('Сначала выберите проект');
+if(!confirm('Удалить проект "'+window.project.name+'" и все его файлы без возможности восстановления?'))return;
+try{
+await api('/api/projects/'+window.project.id,{method:'DELETE'});
+alert('Проект удалён');
+window.project=null;
+window.file=null;
+await window.loadProjects();
+if(window.ed)window.ed.setValue('');
+document.getElementById('tab').textContent='Нет проекта';
+document.getElementById('files').innerHTML='';
+}catch(e){
+alert('Не удалось удалить проект: '+e.message);
+}
+};
+
 window.addEventListener('DOMContentLoaded',()=>{
 setTimeout(initResizable,300);
 document.getElementById('terminalCommand')?.addEventListener('keydown',e=>{
@@ -305,7 +333,6 @@ window.addEventListener('resize',()=>{
 if(window.ed)setTimeout(()=>window.ed.layout(),50);
 });
 
-// Перехват ошибок для отладки
 window.onerror=function(msg,url,line,col,error){
 console.error('Global error:',msg,error);
 };
