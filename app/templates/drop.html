@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Комната обмена · PySpace{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/drop.css') }}?v={{ asset_version }}">
+{% endblock %}
+
+{% block body_attrs %} class="drop-body"{% endblock %}
+
+{% block body %}
+<main class="drop">
+  {% if invalid %}
+    <section class="drop__card drop__card--error">
+      <div class="drop__glyph">⌧</div>
+      <h1>Ссылка недействительна</h1>
+      <p class="muted">Комната обмена закрыта или удалена. Попросите новую ссылку или QR-код.</p>
+      <code class="drop__token">{{ token }}</code>
+    </section>
+  {% else %}
+    <section class="drop__card" id="dropCard"
+             data-token="{{ token }}"
+             data-max="{{ settings.max_upload_mb }}">
+      <header class="drop__head">
+        <div class="drop__mark" aria-hidden="true">⇄</div>
+        <div>
+          <h1>{{ label or 'Комната обмена' }}</h1>
+          <p class="muted">Файлы попадут прямо в IDE. Регистрация не нужна.</p>
+        </div>
+      </header>
+
+      <div class="drop__zone" id="dropZone" tabindex="0" role="button"
+           aria-label="Выбрать файлы для отправки">
+        <div class="drop__zone-icon" aria-hidden="true">⇧</div>
+        <strong>Перетащите файлы сюда</strong>
+        <span class="muted">или нажмите, чтобы выбрать · до {{ settings.max_upload_mb }} МБ за раз</span>
+        <input type="file" id="dropInput" multiple hidden>
+      </div>
+
+      <ul class="drop__list" id="dropQueue" aria-live="polite"></ul>
+
+      <div class="field">
+        <label for="dropText">Или отправьте текст / заметку</label>
+        <textarea class="textarea" id="dropText" rows="4"
+                  placeholder="Вставьте сюда код, ссылку или сообщение…"></textarea>
+      </div>
+
+      <button class="btn btn--primary btn--block" id="dropSend">Отправить</button>
+      <p class="drop__status" id="dropStatus" role="status"></p>
+
+      <details class="drop__files">
+        <summary>Файлы в этой комнате <span class="chip" id="dropCount">0</span></summary>
+        <ul class="drop__list" id="dropFiles"></ul>
+      </details>
+
+      <footer class="drop__foot">
+        <span class="muted">PySpace IDE</span>
+        <code class="drop__token">{{ token }}</code>
+      </footer>
+    </section>
+  {% endif %}
+</main>
+{% endblock %}
+
+{% block scripts %}
+  <script type="module" src="{{ url_for('static', filename='js/drop.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

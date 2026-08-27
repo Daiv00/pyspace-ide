@@ -1,0 +1,188 @@
+/* ==========================================================================
+   Сброс, типографика и базовые элементы управления
+   ========================================================================== */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-base) / var(--lh-normal) var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overscroll-behavior: none;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 650; line-height: var(--lh-tight); letter-spacing: -0.01em; }
+h1 { font-size: var(--fs-2xl); }
+h2 { font-size: var(--fs-xl); }
+h3 { font-size: var(--fs-lg); }
+p  { margin: 0; }
+
+a { color: var(--accent-hot); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+[hidden], .is-hidden { display: none !important; }
+
+.mono { font-family: var(--font-mono); font-variant-ligatures: none; }
+.muted { color: var(--muted); }
+.dim { color: var(--text-dim); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nowrap { white-space: nowrap; }
+.row { display: flex; align-items: center; gap: var(--sp-2); }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); }
+.stack { display: grid; gap: var(--sp-3); }
+.grow { flex: 1; min-width: 0; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+.eyebrow {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent-hot);
+}
+
+/* --------------------------------------------------------------- скроллбары */
+
+* { scrollbar-width: thin; scrollbar-color: var(--surface-3) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border: 3px solid transparent;
+  border-radius: var(--r-full);
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--surface-hover); background-clip: content-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* ------------------------------------------------------------------ кнопки */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 34px;
+  padding: 0 var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--text-dim);
+  font-size: var(--fs-md);
+  font-weight: 550;
+  white-space: nowrap;
+  transition: background var(--fast), border-color var(--fast), color var(--fast), transform var(--fast);
+}
+.btn:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); border-color: var(--line); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+
+.btn--primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 4px 14px #8b7cff35;
+}
+.btn--primary:hover:not(:disabled) { background: var(--accent-hot); color: #fff; }
+
+.btn--ghost { background: transparent; border-color: transparent; }
+.btn--ghost:hover:not(:disabled) { background: var(--surface-hover); }
+
+.btn--danger { color: var(--danger); border-color: var(--danger-soft); background: var(--danger-soft); }
+.btn--danger:hover:not(:disabled) { background: var(--danger); color: #fff; border-color: transparent; }
+
+.btn--run { background: var(--success); border-color: transparent; color: #062713; font-weight: 700; }
+.btn--run:hover:not(:disabled) { background: #5ce095; color: #062713; }
+
+.btn--sm { min-height: 28px; padding: 0 var(--sp-2); font-size: var(--fs-sm); }
+.btn--icon { min-width: 32px; padding: 0; }
+.btn--block { width: 100%; }
+
+/* --------------------------------------------------------------- поля ввода */
+
+.field { display: grid; gap: 6px; }
+.field > label { font-size: var(--fs-sm); color: var(--muted); font-weight: 550; }
+
+.input, .textarea, .select {
+  width: 100%;
+  min-height: 38px;
+  padding: 9px 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  color: var(--text);
+  transition: border-color var(--fast), box-shadow var(--fast);
+}
+.input:focus, .textarea:focus, .select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.input::placeholder, .textarea::placeholder { color: var(--faint); }
+.textarea { resize: vertical; min-height: 84px; font-family: var(--font-mono); font-size: var(--fs-md); }
+.select { appearance: none; padding-right: 30px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 17px, calc(100% - 11px) 17px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* ------------------------------------------------------------------- чипы */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-full);
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.chip--accent { color: var(--accent-hot); border-color: var(--accent-line); background: var(--accent-soft); }
+.chip--success { color: var(--success); border-color: var(--success-soft); background: var(--success-soft); }
+.chip--warn { color: var(--warn); border-color: var(--warn-soft); background: var(--warn-soft); }
+.chip--danger { color: var(--danger); border-color: var(--danger-soft); background: var(--danger-soft); }
+
+/* --------------------------------------------------------------- состояния */
+
+.empty {
+  display: grid;
+  gap: var(--sp-2);
+  padding: var(--sp-5) var(--sp-4);
+  text-align: center;
+  color: var(--muted);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-lg);
+  font-size: var(--fs-md);
+}
+.empty strong { color: var(--text-dim); font-weight: 600; }
+
+.spinner {
+  width: 15px; height: 15px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.divider { height: 1px; background: var(--line-soft); border: 0; margin: var(--sp-3) 0; }

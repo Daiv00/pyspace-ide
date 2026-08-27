@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+{% block title %}PySpace IDE — онлайн-среда разработки{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/shell.css') }}?v={{ asset_version }}">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+{% endblock %}
+
+{% block body %}
+{# ---------------------------------------------------------------- иконки #}
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="i-base" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"></g>
+  </defs>
+  <symbol id="i-files" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 6a2 2 0 0 1 2-2h3.6l1.8 2.2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+  </symbol>
+  <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/>
+  </symbol>
+  <symbol id="i-box" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3l8 4.3v9.4L12 21l-8-4.3V7.3z"/><path d="M4 7.3l8 4.4 8-4.4M12 11.7V21"/>
+  </symbol>
+  <symbol id="i-share" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>
+    <rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><path d="M14 14h3v3h-3zM19.5 14v6.5H14"/>
+  </symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.5 13.5h4l1.4 2.6h6.2l1.4-2.6h4"/><path d="M6 4.5h12l2.5 9V19a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19v-5.5z"/>
+  </symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3l7.5 2.7v5.6c0 4.4-3 7.9-7.5 9.7-4.5-1.8-7.5-5.3-7.5-9.7V5.7z"/><path d="M9 12l2.2 2.2L15.3 10"/>
+  </symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.6c0-.9 1-1.4 1.7-.9l8.1 5.5c.7.5.7 1.5 0 2l-8.1 5.5c-.7.5-1.7 0-1.7-.9z" fill="currentColor"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="3" y="4.5" width="18" height="15" rx="2.5"/><path d="M7.5 10l2.5 2-2.5 2M12.5 14.5h4"/>
+  </symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2.5 12S6 5.8 12 5.8 21.5 12 21.5 12 18 18.2 12 18.2 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>
+  </symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/>
+  </symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/>
+  </symbol>
+  <symbol id="i-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.4a2.4 2.4 0 1 1 3.6 2.1c-.7.4-1.2 1-1.2 1.8v.4"/><path d="M12 17h.01"/>
+  </symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+    <path d="M4 7h16M4 12h16M4 17h16"/>
+  </symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20.5 4v4h-4"/>
+  </symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 16V4.8M8 8.4L12 4.5l4 3.9"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/>
+  </symbol>
+  <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 4.5v11.2M8 12l4 3.9 4-3.9"/><path d="M4.5 15v3.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V15"/>
+  </symbol>
+  <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 6A1.5 1.5 0 0 1 6 4.5h9L19.5 9v9a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 18z"/>
+    <path d="M8 4.5v4.2h6V4.5M8 19.5v-5h8v5"/>
+  </symbol>
+  <symbol id="i-folder-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3.5 6.5A1.5 1.5 0 0 1 5 5h3.3l1.7 2.2H19a1.5 1.5 0 0 1 1.5 1.5v8.8A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"/>
+    <path d="M12 11v4.5M9.8 13.2h4.4"/>
+  </symbol>
+  <symbol id="i-file-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 4.5h7l5 5V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19z"/><path d="M13 4.5V10h5"/><path d="M12 12.5v4.2M9.9 14.6h4.2"/>
+  </symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4.5 7h15M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7"/>
+    <path d="M6.5 7l.8 12A1.5 1.5 0 0 0 8.8 20.5h6.4a1.5 1.5 0 0 0 1.5-1.5l.8-12"/>
+  </symbol>
+  <symbol id="i-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6 9.5L12 4l6 5.5M6 20l6-5.5 6 5.5"/>
+  </symbol>
+  <symbol id="i-external" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M14 4.5h5.5V10"/><path d="M19.5 4.5L11 13"/><path d="M18 14.5V18a1.5 1.5 0 0 1-1.5 1.5H6A1.5 1.5 0 0 1 4.5 18V7.5A1.5 1.5 0 0 1 6 6h3.5"/>
+  </symbol>
+</svg>
+
+{# ------------------------------------------------------------- экран входа #}
+<div class="gate" id="gate" hidden>
+  <section class="gate__pitch">
+    <div class="brand">
+      <span class="brand__mark">Py</span>
+      <span class="brand__name">PySpace <span>IDE</span></span>
+    </div>
+    <h1 class="gate__title">Полноценная среда разработки прямо в браузере</h1>
+    <p class="gate__lead">
+      Проекты, папки и вкладки файлов, редактор Monaco, настоящий терминал,
+      установка пакетов через pip, живой предпросмотр сайтов и передача файлов по QR-коду.
+    </p>
+    <div class="gate__features">
+      <div class="gate__feature">
+        <span class="gate__feature-icon">⌘</span>
+        <div><b>Без ограничений по коду</b><small>Python, SQL, HTML/CSS/JS и любые файлы проекта — без белых списков команд.</small></div>
+      </div>
+      <div class="gate__feature">
+        <span class="gate__feature-icon">▮</span>
+        <div><b>Настоящий терминал</b><small>Полноценный PTY с bash: git, pip, python, что угодно.</small></div>
+      </div>
+      <div class="gate__feature">
+        <span class="gate__feature-icon">◑</span>
+        <div><b>Живой предпросмотр</b><small>Веб-проект открывается рядом с кодом и обновляется при сохранении.</small></div>
+      </div>
+      <div class="gate__feature">
+        <span class="gate__feature-icon">⇄</span>
+        <div><b>Обмен по QR-коду</b><small>Комната для загрузки файлов с телефона за пару секунд.</small></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="gate__form-wrap">
+    <form class="gate__card" id="authForm" autocomplete="on">
+      <div class="brand gate__card-brand" style="justify-content:center">
+        <span class="brand__mark">Py</span>
+        <span class="brand__name">PySpace <span>IDE</span></span>
+      </div>
+      <div class="gate__switch" role="tablist" aria-label="Вход или регистрация">
+        <button type="button" role="tab" data-auth-mode="login" aria-selected="true">Вход</button>
+        <button type="button" role="tab" data-auth-mode="register" aria-selected="false" id="authRegisterTab">Регистрация</button>
+      </div>
+      <div class="field">
+        <label for="authUser">Логин</label>
+        <input class="input" id="authUser" name="username" autocomplete="username" required
+               minlength="3" maxlength="32" placeholder="например, denis">
+      </div>
+      <div class="field">
+        <label for="authPass">Пароль</label>
+        <input class="input" id="authPass" name="password" type="password" autocomplete="current-password"
+               required minlength="8" placeholder="минимум 8 символов">
+      </div>
+      <div class="gate__status" id="authStatus" role="status"></div>
+      <button class="btn btn--primary btn--block" type="submit" id="authSubmit">Войти</button>
+      <p class="gate__note" id="authNote"></p>
+    </form>
+  </div>
+</div>
+
+{# ------------------------------------------------------------------ каркас #}
+<div class="app" id="app" hidden>
+  <header class="titlebar">
+    <button class="btn btn--ghost btn--icon mobile-only" id="sidebarToggle" title="Панель файлов" aria-label="Панель файлов">
+      <svg width="18" height="18"><use href="#i-menu"></use></svg>
+    </button>
+    <div class="brand desktop-only">
+      <span class="brand__mark">Py</span>
+      <span class="brand__name">PySpace <span>IDE</span></span>
+    </div>
+
+    <div class="titlebar__center">
+      <button class="project-switch" id="projectSwitch" title="Переключить проект (Ctrl+P)">
+        <span class="project-switch__label" id="projectName">Загрузка…</span>
+        <span class="project-switch__caret">▾</span>
+      </button>
+      <div class="run-group">
+        <button class="btn btn--run" id="runBtn" title="Запустить активный файл (Ctrl+Enter)">
+          <svg width="15" height="15"><use href="#i-play"></use></svg>
+          <span class="desktop-only">Запустить</span>
+        </button>
+        <button class="btn btn--ghost btn--icon" id="saveBtn" title="Сохранить (Ctrl+S)">
+          <svg width="17" height="17"><use href="#i-save"></use></svg>
+        </button>
+        <button class="btn btn--ghost btn--icon desktop-only" id="previewBtn" title="Живой предпросмотр">
+          <svg width="17" height="17"><use href="#i-eye"></use></svg>
+        </button>
+        <button class="btn btn--ghost btn--icon desktop-only" id="terminalBtn" title="Терминал (Ctrl+`)">
+          <svg width="17" height="17"><use href="#i-terminal"></use></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="titlebar__right">
+      <button class="btn btn--ghost btn--sm desktop-only" id="paletteBtn" title="Палитра команд">
+        <svg width="15" height="15"><use href="#i-search"></use></svg>
+        <span>Команды</span><kbd>Ctrl K</kbd>
+      </button>
+      <div class="user-menu">
+        <button class="user-btn" id="userBtn">
+          <span class="avatar" id="userAvatar">?</span>
+          <span class="desktop-only" id="userName">…</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="workbench" id="workbench" data-sidebar="open">
+    <nav class="rail" aria-label="Разделы">
+      <button class="rail-btn" data-panel="explorer" aria-selected="true" title="Файлы проекта (Ctrl+Shift+E)">
+        <svg><use href="#i-files"></use></svg>
+      </button>
+      <button class="rail-btn" data-panel="search" aria-selected="false" title="Поиск по файлам (Ctrl+Shift+F)">
+        <svg><use href="#i-search"></use></svg>
+      </button>
+      <button class="rail-btn" data-panel="packages" aria-selected="false" title="Пакеты pip">
+        <svg><use href="#i-box"></use></svg>
+      </button>
+      <button class="rail-btn" data-panel="drops" aria-selected="false" title="Обмен по QR">
+        <svg><use href="#i-share"></use></svg>
+      </button>
+      <button class="rail-btn" data-panel="vault" aria-selected="false" title="Полученные файлы">
+        <svg><use href="#i-inbox"></use></svg>
+        <span class="rail-btn__badge is-hidden" id="vaultBadge">0</span>
+      </button>
+      <button class="rail-btn is-hidden" data-panel="admin" aria-selected="false" title="Администрирование" id="adminRail">
+        <svg><use href="#i-shield"></use></svg>
+      </button>
+      <span class="rail__spacer"></span>
+      <button class="rail-btn" id="themeBtn" title="Сменить тему">
+        <svg><use href="#i-moon"></use></svg>
+      </button>
+      <button class="rail-btn" id="helpBtn" title="Горячие клавиши и справка">
+        <svg><use href="#i-help"></use></svg>
+      </button>
+    </nav>
+
+    <aside class="sidebar" id="sidebar">
+      {# ---- Проводник ---- #}
+      <section class="panel" data-panel="explorer" data-active="true">
+        <div class="panel__head">
+          <span class="panel__title">Проводник</span>
+          <div class="panel__actions">
+            <button class="btn btn--ghost btn--icon btn--sm" id="newFileBtn" title="Новый файл">
+              <svg width="16" height="16"><use href="#i-file-plus"></use></svg>
+            </button>
+            <button class="btn btn--ghost btn--icon btn--sm" id="newFolderBtn" title="Новая папка">
+              <svg width="16" height="16"><use href="#i-folder-plus"></use></svg>
+            </button>
+            <button class="btn btn--ghost btn--icon btn--sm" id="uploadBtn" title="Загрузить файлы">
+              <svg width="16" height="16"><use href="#i-upload"></use></svg>
+            </button>
+            <button class="btn btn--ghost btn--icon btn--sm" id="treeRefreshBtn" title="Обновить дерево">
+              <svg width="16" height="16"><use href="#i-refresh"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="panel__body" id="treePanelBody">
+          <div class="tree" id="tree" role="tree" aria-label="Файлы проекта"></div>
+          <div class="tree-dropzone" id="treeDropzone">Перетащите файлы или папку сюда</div>
+        </div>
+        <div class="panel__footer">
+          <button class="btn btn--sm btn--block" id="downloadZipBtn">
+            <svg width="15" height="15"><use href="#i-download"></use></svg> Скачать проект (ZIP)
+          </button>
+          <button class="btn btn--sm btn--block" id="importZipBtn">
+            <svg width="15" height="15"><use href="#i-upload"></use></svg> Импорт ZIP в проект
+          </button>
+        </div>
+      </section>
+
+      {# ---- Поиск ---- #}
+      <section class="panel" data-panel="search">
+        <div class="panel__head"><span class="panel__title">Поиск по проекту</span></div>
+        <div class="panel__body">
+          <form class="stack" id="searchForm" style="margin-bottom:12px">
+            <input class="input" id="searchQuery" placeholder="Что искать…" autocomplete="off">
+            <label class="row" style="font-size:var(--fs-sm);color:var(--muted)">
+              <input type="checkbox" id="searchCase"> учитывать регистр
+            </label>
+          </form>
+          <div id="searchResults"></div>
+        </div>
+      </section>
+
+      {# ---- Пакеты ---- #}
+      <section class="panel" data-panel="packages">
+        <div class="panel__head">
+          <span class="panel__title">Пакеты pip</span>
+          <div class="panel__actions">
+            <button class="btn btn--ghost btn--icon btn--sm" id="pipRefreshBtn" title="Обновить список">
+              <svg width="16" height="16"><use href="#i-refresh"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="panel__body">
+          <form class="stack" id="pipForm" style="margin-bottom:12px">
+            <input class="input" id="pipSpec" placeholder="requests или pandas==2.2.2" autocomplete="off">
+            <button class="btn btn--primary btn--sm btn--block" type="submit">Установить в проект</button>
+          </form>
+          <div id="pipList"></div>
+        </div>
+        <div class="panel__footer">
+          <p class="muted" style="font-size:var(--fs-xs)">
+            Пакеты ставятся в папку <span class="mono">.packages</span> внутри проекта и доступны при запуске кода.
+          </p>
+        </div>
+      </section>
+
+      {# ---- Обмен ---- #}
+      <section class="panel" data-panel="drops">
+        <div class="panel__head">
+          <span class="panel__title">Обмен по QR</span>
+          <div class="panel__actions">
+            <button class="btn btn--ghost btn--icon btn--sm" id="dropNewBtn" title="Создать комнату">
+              <svg width="16" height="16"><use href="#i-plus"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="panel__body" id="dropsList"></div>
+        <div class="panel__footer">
+          <p class="muted" style="font-size:var(--fs-xs)">
+            Отсканируйте QR телефоном — откроется страница загрузки файлов без пароля.
+          </p>
+        </div>
+      </section>
+
+      {# ---- Полученные файлы ---- #}
+      <section class="panel" data-panel="vault">
+        <div class="panel__head">
+          <span class="panel__title">Полученные файлы</span>
+          <div class="panel__actions">
+            <button class="btn btn--ghost btn--icon btn--sm" id="vaultRefreshBtn" title="Обновить">
+              <svg width="16" height="16"><use href="#i-refresh"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="panel__body" id="vaultList"></div>
+      </section>
+
+      {# ---- Администрирование ---- #}
+      <section class="panel" data-panel="admin">
+        <div class="panel__head">
+          <span class="panel__title">Администрирование</span>
+          <div class="panel__actions">
+            <button class="btn btn--ghost btn--icon btn--sm" id="adminRefreshBtn" title="Обновить">
+              <svg width="16" height="16"><use href="#i-refresh"></use></svg>
+            </button>
+          </div>
+        </div>
+        <div class="panel__body" id="adminPanelBody"></div>
+        <div class="panel__footer">
+          <button class="btn btn--sm btn--block" id="adminOpenBtn">Открыть полную панель</button>
+        </div>
+      </section>
+    </aside>
+
+    <div class="gutter-v" id="gutterSidebar" role="separator" aria-orientation="vertical" title="Потяните, чтобы изменить ширину"></div>
+
+    <main class="main">
+      <div class="tabbar">
+        <div class="tabs" id="tabs" role="tablist" aria-label="Открытые файлы"></div>
+        <div class="tabbar__tools">
+          <button class="btn btn--ghost btn--icon btn--sm" id="closeOthersBtn" title="Закрыть остальные вкладки">
+            <svg width="16" height="16"><use href="#i-collapse"></use></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="editor-area" id="editorArea" data-preview="false">
+        <div class="editor-host">
+          <div class="editor-host__monaco" id="monaco"></div>
+          <div class="editor-placeholder" id="editorPlaceholder">
+            <div class="editor-placeholder__logo">⌥</div>
+            <div class="stack" style="gap:6px">
+              <strong style="color:var(--text-dim);font-size:var(--fs-lg)">Файл не открыт</strong>
+              <p>Выберите файл в проводнике или создайте новый.</p>
+              <p><kbd>Ctrl</kbd><kbd>K</kbd> — палитра команд · <kbd>Ctrl</kbd><kbd>S</kbd> — сохранить · <kbd>Ctrl</kbd><kbd>Enter</kbd> — запустить</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="gutter-v" id="gutterPreview" role="separator" aria-orientation="vertical"></div>
+
+        <section class="preview" id="preview">
+          <div class="preview__head">
+            <button class="btn btn--ghost btn--icon btn--sm" id="previewReload" title="Обновить">
+              <svg width="16" height="16"><use href="#i-refresh"></use></svg>
+            </button>
+            <span class="preview__url" id="previewUrl">—</span>
+            <button class="btn btn--ghost btn--icon btn--sm" id="previewDevice" title="Мобильный вид">▭</button>
+            <button class="btn btn--ghost btn--icon btn--sm" id="previewOpen" title="Открыть в новой вкладке">
+              <svg width="16" height="16"><use href="#i-external"></use></svg>
+            </button>
+            <button class="btn btn--ghost btn--icon btn--sm" id="previewClose" title="Закрыть предпросмотр">✕</button>
+          </div>
+          <iframe class="preview__frame" id="previewFrame" title="Предпросмотр проекта"
+                  referrerpolicy="no-referrer"></iframe>
+        </section>
+      </div>
+
+      <div class="gutter-h" id="gutterDock" role="separator" aria-orientation="horizontal"></div>
+
+      <section class="dock" id="dock" data-collapsed="false">
+        <div class="dock__head">
+          <button class="dock-tab" data-dock="output" aria-selected="true">Вывод</button>
+          <button class="dock-tab" data-dock="terminal" aria-selected="false">
+            <span class="dock-tab__dot is-hidden" id="terminalDot"></span>Терминал
+          </button>
+          <span class="grow"></span>
+          <button class="btn btn--ghost btn--icon btn--sm" id="dockClearBtn" title="Очистить">
+            <svg width="16" height="16"><use href="#i-trash"></use></svg>
+          </button>
+          <button class="btn btn--ghost btn--icon btn--sm" id="dockToggleBtn" title="Свернуть панель">▾</button>
+        </div>
+        <div class="dock__body">
+          <div class="dock-pane output-pane" data-dock="output" data-active="true">
+            <div class="output-stdin">
+              <div class="output-stdin__label"><span>Ввод (stdin)</span></div>
+              <textarea id="stdinBox" spellcheck="false" placeholder="Каждая строка — один input()"></textarea>
+            </div>
+            <div class="output-log">
+              <div class="output-log__label">
+                <span>Результат</span>
+                <span class="mono" id="runMeta"></span>
+              </div>
+              <pre id="outputLog">Готово к запуску. Ctrl+Enter — выполнить активный файл.</pre>
+            </div>
+          </div>
+          <div class="dock-pane terminal-pane" data-dock="terminal">
+            <div class="terminal-bar">
+              <span class="chip" id="terminalState">отключён</span>
+              <span class="grow"></span>
+              <button class="btn btn--sm" id="terminalRestart">Перезапустить</button>
+              <button class="btn btn--sm" id="terminalInterrupt" title="Ctrl+C">Прервать</button>
+            </div>
+            <div class="terminal-host" id="terminalHost"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <footer class="statusbar">
+    <span class="statusbar__item"><span class="status-dot" id="connDot" data-state="ok"></span><span id="connText">готов</span></span>
+    <button class="statusbar__item statusbar__item--btn" id="statusProject" data-optional="true">проект: —</button>
+    <span class="statusbar__item" id="statusFile" data-optional="true">—</span>
+    <span class="statusbar__spacer"></span>
+    <span class="statusbar__item" id="statusCursor" data-optional="true">Стр 1, Кол 1</span>
+    <button class="statusbar__item statusbar__item--btn" id="statusLang" data-optional="true">—</button>
+    <span class="statusbar__item" id="statusStorage" data-optional="true"></span>
+    <span class="statusbar__item">v{{ app_version }}</span>
+  </footer>
+</div>
+
+<div id="layers"></div>
+{% endblock %}
+
+{% block scripts %}
+<script id="bootData" type="application/json">{{ boot | tojson }}</script>
+<!-- xterm.js — UMD-сборка: подключаем ДО загрузчика Monaco, иначе AMD-define
+     перехватит модуль и window.Terminal не появится. -->
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"
+        crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script type="module" src="{{ url_for('static', filename='js/main.js') }}?v={{ asset_version }}"></script>
+{% endblock %}

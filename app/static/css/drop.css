@@ -1,0 +1,198 @@
+/* Публичная страница комнаты обмена и страница ошибки. */
+
+.drop-body {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background:
+    radial-gradient(900px 520px at 15% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+    radial-gradient(760px 480px at 95% 110%, color-mix(in srgb, var(--accent-hot) 16%, transparent), transparent 70%),
+    var(--bg);
+}
+
+.drop { width: 100%; max-width: 520px; }
+
+.drop__card {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.drop__card h1 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
+.drop__card p { margin: 4px 0 0; font-size: var(--fs-sm); }
+
+.drop__head { display: flex; align-items: flex-start; gap: 14px; }
+
+.drop__mark {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 13px;
+  font-size: 20px;
+  color: #fff;
+  background: linear-gradient(140deg, var(--accent), var(--accent-hot));
+  box-shadow: 0 8px 20px -10px var(--accent);
+}
+
+.drop__zone {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 28px 18px;
+  text-align: center;
+  cursor: pointer;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  transition: border-color var(--fast), background var(--fast), transform var(--fast);
+}
+
+.drop__zone:hover,
+.drop__zone:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+  outline: none;
+}
+
+.drop__zone[data-over="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+  transform: scale(1.01);
+}
+
+.drop__zone-icon {
+  font-size: 26px;
+  line-height: 1;
+  color: var(--accent);
+}
+
+.drop__zone strong { font-size: var(--fs-md); }
+.drop__zone span { font-size: var(--fs-sm); }
+
+.drop__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.drop__list:empty { display: none; }
+
+.drop__list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  font-size: var(--fs-sm);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.drop__list li .grow { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drop__list li small { color: var(--muted); flex: none; }
+
+.drop__list li a { color: var(--accent-hot); text-decoration: none; }
+.drop__list li a:hover { text-decoration: underline; }
+
+.drop__list li button {
+  flex: none;
+  padding: 0 4px;
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.drop__list li button:hover { color: var(--danger); }
+
+.drop__status {
+  min-height: 18px;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  text-align: center;
+}
+
+.drop__status[data-kind="error"] { color: var(--danger); }
+.drop__status[data-kind="success"] { color: var(--success); }
+
+.drop__files summary {
+  cursor: pointer;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drop__files summary::marker { color: var(--muted); }
+.drop__files[open] summary { margin-bottom: 10px; }
+
+.drop__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-sm);
+}
+
+.drop__token {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.drop__card--error { text-align: center; justify-items: center; }
+
+.drop__glyph {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+  font-size: 24px;
+  font-weight: 700;
+  border-radius: 20px;
+  color: var(--accent-hot);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.drop__bar {
+  position: relative;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.drop__bar > i {
+  position: absolute;
+  inset: 0 100% 0 0;
+  display: block;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hot));
+  transition: right 180ms var(--ease);
+}

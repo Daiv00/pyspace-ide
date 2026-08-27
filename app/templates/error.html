@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} · PySpace IDE{% endblock %}
+
+{% block head %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/drop.css') }}?v={{ asset_version }}">
+{% endblock %}
+
+{% block body_attrs %} class="drop-body"{% endblock %}
+
+{% block body %}
+<main class="drop">
+  <section class="drop__card drop__card--error">
+    <div class="drop__glyph">{{ code }}</div>
+    <h1>{{ title or 'Что-то пошло не так' }}</h1>
+    <p class="muted">{{ message }}</p>
+    <a class="btn btn--primary" href="/">Вернуться в IDE</a>
+  </section>
+</main>
+{% endblock %}

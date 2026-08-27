@@ -1,0 +1,60 @@
+# Blueprint для Render. Файл лежит в корне репозитория —
+# Render читает его сам и деплоит при каждом push в ветку main.
+services:
+  - type: web
+    name: pyspace-ide
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: main
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYSPACE_ENV
+        value: production
+
+      # Секрет сессий. Render сгенерирует его один раз сам.
+      - key: PYSPACE_SECRET
+        generateValue: true
+
+      # Первый администратор создаётся автоматически при старте.
+      # Значения задаются в панели Render (sync: false = не хранится в git).
+      - key: PYSPACE_ADMIN_USER
+        sync: false
+      - key: PYSPACE_ADMIN_PASSWORD
+        sync: false
+
+      # Функции: терминал, предпросмотр, свободная регистрация.
+      - key: PYSPACE_ENABLE_PTY
+        value: "1"
+      - key: PYSPACE_ENABLE_PREVIEW
+        value: "1"
+      - key: PYSPACE_ENABLE_REGISTRATION
+        value: "0"
+
+      # Лимиты.
+      - key: PYSPACE_MAX_UPLOAD_MB
+        value: "200"
+      - key: PYSPACE_RUN_TIMEOUT
+        value: "30"
+
+      # gevent-режим обязателен для WebSocket-терминала под gunicorn.
+      - key: PYSPACE_GEVENT
+        value: "1"
+
+    # ------------------------------------------------------------------
+    # ВНИМАНИЕ: на бесплатном плане постоянного диска нет — проекты и база
+    # хранятся внутри контейнера и ИСЧЕЗАЮТ при каждом деплое/перезапуске.
+    #
+    # Чтобы данные сохранялись, перейдите на платный план (Starter и выше),
+    # поменяйте `plan: free` на `plan: starter` и раскомментируйте блок ниже:
+    #
+    # disk:
+    #   name: pyspace-data
+    #   mountPath: /data
+    #   sizeGB: 5
+    #
+    # Приложение само увидит /data и начнёт хранить там базу и файлы проектов
+    # (при желании можно указать путь явно: PYSPACE_DATA_DIR=/data).
+    # ------------------------------------------------------------------
