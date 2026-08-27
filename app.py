@@ -574,11 +574,11 @@ def pip_install(pid):
         return jsonify(ok=False,error='Недопустимое имя пакета. Используйте, например, requests или requests==2.32.3'),400
     work,env=project_env(pid); target=work/'.packages'
     try:
-        r=subprocess.run([sys.executable,'-m','pip','install','--disable-pip-version-check','--no-input','--no-cache-dir','--target',str(target),package],cwd=work,capture_output=True,text=True,timeout=120,env=env)
+        r=subprocess.run([sys.executable,'-m','pip','install','--disable-pip-version-check','--no-input','--no-cache-dir','--target',str(target),package],cwd=work,capture_output=True,text=True,timeout=300,env=env)  # Увеличен таймаут до 300 секунд
         output=(r.stdout+r.stderr)[-12000:]
         return jsonify(ok=r.returncode==0,returncode=r.returncode,output=output,package=package)
     except subprocess.TimeoutExpired:
-        return jsonify(ok=False,returncode=-1,output='⏱ pip install превысил лимит 120 секунд.'),504
+        return jsonify(ok=False,returncode=-1,output='⏱ pip install превысил лимит 300 секунд.'),504
 
 # Terminal with expanded capabilities
 TERMINAL_RE=re.compile(r'^[A-Za-z0-9_./:@%+\-=,\[\]]+$')
@@ -603,7 +603,6 @@ def parse_terminal(command):
             for a in args[1:]:
                 if not a.startswith('-') and (a.startswith('/') or a=='..' or a.startswith('../') or '/..' in a): raise ValueError('Доступ за пределы проекта запрещён')
     if args[0]=='pip':
-        # Разрешаем install для удобства
         if len(args)>1 and args[1] not in ('list','freeze','show','check','--version','-V','install'):
             raise ValueError('Разрешены: pip list, freeze, show, check, install и --version')
     if args[0] in ('cat','head','tail','find','ls'):
@@ -626,18 +625,17 @@ def terminal():
         package = ' '.join(args[2:]) if len(args) > 2 else ''
         if not package:
             return jsonify(ok=False,error='Укажите пакет для установки'),400
-        # Перенаправляем на pip-install эндпоинт
         try:
             work,env = project_env(pid)
             target = work / '.packages'
             r = subprocess.run(
                 [sys.executable, '-m', 'pip', 'install', '--disable-pip-version-check',
                  '--no-input', '--no-cache-dir', '--target', str(target)] + args[2:],
-                cwd=work, capture_output=True, text=True, timeout=120, env=env
+                cwd=work, capture_output=True, text=True, timeout=300, env=env  # Увеличен таймаут до 300 секунд
             )
             return jsonify(ok=r.returncode==0, returncode=r.returncode, output=(r.stdout+r.stderr)[-16000:])
         except subprocess.TimeoutExpired:
-            return jsonify(ok=False, returncode=-1, output='⏱ pip install превысил лимит 120 секунд.'),504
+            return jsonify(ok=False, returncode=-1, output='⏱ pip install превысил лимит 300 секунд.'),504
     
     work,env = project_env(pid)
     try:
