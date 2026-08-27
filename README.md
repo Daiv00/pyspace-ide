@@ -70,3 +70,14 @@ QR generation moved server-side: the server generates a PNG with the exact short
 
 ## v2.5 ZIP upload
 Projects can now accept a `.zip` upload directly from the UI. The server safely extracts the archive into the selected project and blocks path traversal entries such as `../`. Existing files are kept unless the ZIP contains the same path, in which case the uploaded file replaces it.
+
+
+## v2.8 IDE terminal and per-project packages
+- Terminal modal scoped to the selected project.
+- Per-project Python virtual environments under `.venv`.
+- `pip install`, `pip list`, `pip uninstall` through the selected project environment.
+- `requirements.txt` is refreshed after package changes.
+- Project download now asks which accessible project to export.
+- ZIP upload creates a new project automatically.
+
+Security note: arbitrary package installation is powerful and should only be enabled on a trusted/private deployment. The terminal intentionally uses a command allowlist; it is not a full OS shell.

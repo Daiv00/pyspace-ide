@@ -1,38 +1,21 @@
-import io
-import json
-import zipfile
-import shutil
-from werkzeug.exceptions import RequestEntityTooLarge
 import os,re,sqlite3,secrets,socket,string,subprocess,sys,tempfile,shutil,zipfile,io,base64,datetime
-import threading, time, http.client, mimetypes, urllib.request, urllib.error
 from pathlib import Path
 from functools import wraps
-from flask import Flask,request,jsonify,session,render_template,send_file,Response
+from flask import Flask,request,jsonify,session,render_template,send_file
 from werkzeug.security import generate_password_hash,check_password_hash
-import autopep8
-import jsbeautifier
 
 BASE=Path(__file__).resolve().parent
 DATA_ROOT=Path(os.getenv('PYSPACE_DATA_DIR', str(BASE))).resolve()
 DB=Path(os.getenv('PYSPACE_DB', str(DATA_ROOT/'data/pyspace.db'))).resolve()
 STORAGE=Path(os.getenv('PYSPACE_STORAGE_DIR', str(DATA_ROOT/'storage'))).resolve()
 LOCAL_HUB=Path(os.getenv('PYSPACE_LOCAL_HUB_DIR', str(DATA_ROOT/'local_hub'))).resolve()
-PORT=int(os.getenv('PORT','10000'))
+PORT=int(os.getenv('PORT','8080'))
 HOST='0.0.0.0'
-TIMEOUT=max(1,int(os.getenv('PYSPACE_RUN_TIMEOUT','30')))
+TIMEOUT=int(os.getenv('PYSPACE_RUN_TIMEOUT','8'))
 
 app=Flask(__name__)
 app.secret_key=os.getenv('PYSPACE_SECRET',secrets.token_hex(32))
 app.config['MAX_CONTENT_LENGTH']=100*1024*1024
-
-@app.errorhandler(RequestEntityTooLarge)
-def handle_too_large(e):
-    return jsonify(ok=False,error='ZIP/файл слишком большой (максимум 100 МБ)'),413
-
-@app.errorhandler(Exception)
-def handle_unexpected_error(e):
-    app.logger.exception('Unhandled server error')
-    return jsonify(ok=False,error='Внутренняя ошибка сервера',details=str(e)),500
 
 LANGS={'py':'python','pyw':'python','html':'html','htm':'html','css':'css','sql':'sql','js':'javascript','json':'json','txt':'plaintext'}
 
@@ -90,194 +73,13 @@ def clean(p):
     # Keep normal Unicode filenames, but remove characters that are unsafe on Windows/Linux.
     safe=[]
     for x in parts:
-        x=re.sub(r'[<>:"|?*\x00-\x1f]','_',x).strip()
+        x=re.sub(r'[<>:"|?*\\x00-\\x1f]','_',x).strip()
         if not x or x in ('.','..'): continue
         safe.append(x)
     if not safe: raise ValueError('Недопустимое имя файла')
     return '/'.join(safe)
 
 def pdir(pid): return STORAGE/f'project_{pid}'
-
-# Live web previews. Each preview runs inside this same PySpace instance and is
-# reverse-proxied through /web-preview/<token>/..., so users do not need Render
-# or another external deployment to see their project.
-WEB_PREVIEWS = {}
-WEB_PREVIEWS_LOCK = threading.Lock()
-WEB_PREVIEW_TTL = int(os.getenv('PYSPACE_WEB_PREVIEW_TTL', '1800'))
-WEB_PREVIEW_STARTUP = float(os.getenv('PYSPACE_WEB_PREVIEW_STARTUP', '8'))
-
-def _stop_web_preview(token):
-    with WEB_PREVIEWS_LOCK:
-        item = WEB_PREVIEWS.pop(token, None)
-    if item:
-        try:
-            item['proc'].terminate()
-            item['proc'].wait(timeout=3)
-        except Exception:
-            try: item['proc'].kill()
-            except Exception: pass
-
-def _web_preview_cleaner():
-    while True:
-        time.sleep(30)
-        now = time.time()
-        with WEB_PREVIEWS_LOCK:
-            items = list(WEB_PREVIEWS.items())
-        for token, item in items:
-            if item['proc'].poll() is not None or now - item['last'] > WEB_PREVIEW_TTL:
-                _stop_web_preview(token)
-
-threading.Thread(target=_web_preview_cleaner, daemon=True).start()
-
-# Keep-alive self-ping. Render's free tier spins a service down after 15
-# minutes without inbound traffic, and that traffic must reach Render's
-# public edge — pinging localhost from inside this same process does not
-# count. So this pings the service's own PUBLIC url instead. RENDER_EXTERNAL_URL
-# is set automatically by Render for every web service; if it's absent (e.g.
-# running locally, or on another host) the pinger simply does nothing.
-KEEPALIVE_ENABLED = os.getenv('PYSPACE_KEEPALIVE', '1') != '0'
-KEEPALIVE_INTERVAL = max(60, int(os.getenv('PYSPACE_KEEPALIVE_INTERVAL', '600')))  # seconds, default 10 min
-
-def _keep_alive_loop():
-    external_url = os.getenv('RENDER_EXTERNAL_URL', '').strip()
-    if not external_url:
-        app.logger.info('PYSPACE_KEEPALIVE: RENDER_EXTERNAL_URL not set, self-ping disabled.')
-        return
-    ping_url = external_url.rstrip('/') + '/health'
-    while True:
-        time.sleep(KEEPALIVE_INTERVAL)
-        try:
-            with urllib.request.urlopen(ping_url, timeout=20) as resp:
-                resp.read(1)
-        except Exception as e:
-            app.logger.warning(f'PYSPACE_KEEPALIVE: self-ping failed: {e}')
-
-if KEEPALIVE_ENABLED:
-    threading.Thread(target=_keep_alive_loop, daemon=True).start()
-
-def _free_port():
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        return s.getsockname()[1]
-
-def _start_web_preview(pid, path):
-    if not access(pid):
-        raise PermissionError('Нет доступа')
-    project = pdir(pid).resolve()
-    script = fpath(pid, path)
-    if not script.is_file():
-        raise FileNotFoundError('Файл не найден')
-
-    # Only Python web applications are started here. HTML/CSS are handled by
-    # the existing sandboxed preview.
-    source = script.read_text(encoding='utf-8', errors='replace')
-    flask_like = ('from flask import' in source or 'import flask' in source or
-                  'Flask(' in source or 'app.run(' in source)
-    if not flask_like:
-        raise ValueError('Не удалось определить Flask-приложение. Для HTML используйте «Предпросмотр».')
-
-    # Reuse a live preview for the same project/file.
-    with WEB_PREVIEWS_LOCK:
-        for token, item in WEB_PREVIEWS.items():
-            if item['pid'] == pid and item['path'] == path and item['proc'].poll() is None:
-                item['last'] = time.time()
-                return token, item['port']
-
-    port = _free_port()
-    env = os.environ.copy()
-    env.update({
-        'PORT': str(port),
-        'PYTHONUNBUFFERED': '1',
-        'PYTHONDONTWRITEBYTECODE': '1',
-    })
-    # Gunicorn is already part of PySpace's production dependencies.
-    cmd = [sys.executable, '-m', 'gunicorn',
-           '--bind', f'127.0.0.1:{port}',
-           '--workers', '1',
-           '--timeout', '120',
-           '--access-logfile', '-',
-           '--error-logfile', '-',
-           f'{Path(path).with_suffix("").as_posix().replace("/", ".")}:app']
-
-    proc = subprocess.Popen(
-        cmd, cwd=project, env=env,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=(os.name != 'nt')
-    )
-    token = secrets.token_urlsafe(24)
-    item = {'pid': pid, 'path': path, 'port': port, 'proc': proc, 'last': time.time()}
-    with WEB_PREVIEWS_LOCK:
-        WEB_PREVIEWS[token] = item
-
-    deadline = time.time() + WEB_PREVIEW_STARTUP
-    ready = False
-    while time.time() < deadline:
-        if proc.poll() is not None:
-            break
-        try:
-            c = http.client.HTTPConnection('127.0.0.1', port, timeout=0.4)
-            c.request('GET', '/')
-            r = c.getresponse()
-            r.read(64)
-            c.close()
-            ready = True
-            break
-        except Exception:
-            time.sleep(0.12)
-    if not ready:
-        _stop_web_preview(token)
-        raise RuntimeError('Не удалось запустить веб-приложение. Проверьте app.py и зависимости проекта.')
-
-    return token, port
-
-def _proxy_web_preview(token, subpath):
-    with WEB_PREVIEWS_LOCK:
-        item = WEB_PREVIEWS.get(token)
-        if not item:
-            return None
-        if item['proc'].poll() is not None:
-            WEB_PREVIEWS.pop(token, None)
-            return None
-        item['last'] = time.time()
-        port = item['port']
-
-    target_path = '/' + (subpath or '')
-    if request.query_string:
-        target_path += '?' + request.query_string.decode('utf-8', 'replace')
-    body = request.get_data()
-    headers = {}
-    for k, v in request.headers.items():
-        lk = k.lower()
-        if lk in ('host', 'content-length', 'connection'):
-            continue
-        if lk in ('cookie', 'content-type', 'authorization', 'accept', 'user-agent'):
-            headers[k] = v
-    headers['Host'] = f'127.0.0.1:{port}'
-    headers['X-Forwarded-Proto'] = request.scheme
-    headers['X-Forwarded-Host'] = request.host
-
-    try:
-        conn = http.client.HTTPConnection('127.0.0.1', port, timeout=30)
-        conn.request(request.method, target_path, body=body or None, headers=headers)
-        upstream = conn.getresponse()
-        data = upstream.read()
-        out_headers = []
-        for k, v in upstream.getheaders():
-            lk = k.lower()
-            if lk in ('connection', 'transfer-encoding', 'content-length', 'server', 'date'):
-                continue
-            if lk == 'location' and v.startswith('/'):
-                v = f'/web-preview/{token}{v}'
-            out_headers.append((k, v))
-        out_headers.append(('Cache-Control', 'no-store'))
-        return Response(data, status=upstream.status, headers=out_headers)
-    except Exception as e:
-        return jsonify(error='Веб-приложение остановилось или не отвечает', detail=str(e)), 502
-    finally:
-        try: conn.close()
-        except Exception: pass
-
 
 def fpath(pid,p):
     p=clean(p); base=pdir(pid).resolve(); x=(base/p).resolve()
@@ -397,34 +199,6 @@ def savefile(pid):
     if len(content.encode())>2*1024*1024:return jsonify(error='Файл слишком большой'),413
     x.parent.mkdir(parents=True,exist_ok=True); x.write_text(content,encoding='utf-8'); return jsonify(ok=True)
 
-@app.post('/api/projects/<int:pid>/format')
-@auth
-def format_code(pid):
-    if not access(pid,True):return jsonify(error='Нет прав'),403
-    d=request.get_json() or {}
-    content=str(d.get('content',''))
-    lang=str(d.get('language','')).lower()
-    if len(content.encode())>2*1024*1024:return jsonify(error='Файл слишком большой'),413
-    try:
-        if lang=='python':
-            # Расставляет отступы по структуре кода (не просто меняет табы на пробелы),
-            # чинит смешанные табы/пробелы, убирает пробелы в конце строк.
-            formatted=autopep8.fix_code(content,options={'aggressive':1})
-        elif lang in ('html','css','javascript','json'):
-            opts=jsbeautifier.default_options()
-            opts.indent_size=2
-            opts.indent_with_tabs=False
-            opts.end_with_newline=True
-            if lang=='css':
-                formatted=jsbeautifier.beautify_css(content,opts)
-            else:
-                formatted=jsbeautifier.beautify(content,opts)
-        else:
-            return jsonify(error='Форматирование недоступно для этого типа файла'),400
-    except Exception as e:
-        return jsonify(error=f'Не удалось отформатировать: {e}'),400
-    return jsonify(ok=True,content=formatted)
-
 @app.post('/api/projects/<int:pid>/upload')
 @auth
 def upload_files(pid):
@@ -458,30 +232,17 @@ def download_project(pid):
     with zipfile.ZipFile(mem,'w',zipfile.ZIP_DEFLATED) as z:
         if b.exists():
             for x in b.rglob('*'):
-                if x.is_file(): z.write(x,x.relative_to(b).as_posix())
+                if x.is_file() and '.venv' not in x.parts: z.write(x,x.relative_to(b).as_posix())
     mem.seek(0); return send_file(mem,as_attachment=True,download_name=f'pyspace_project_{pid}.zip',mimetype='application/zip')
 
 @app.get('/api/projects/<int:pid>/preview/<path:path>')
 @auth
 def preview_file(pid,path):
-    if not access(pid): return jsonify(error='Нет доступа'),403
-    try:
-        x=fpath(pid,path)
-    except ValueError as e:
-        return jsonify(error=str(e)),400
-    if not x.is_file(): return jsonify(error='Файл не найден'),404
-    ext=x.suffix.lower()
-    if ext in ('.html','.htm'):
-        # Serve the actual file from the project, so relative CSS/JS/images work.
-        return send_file(x, mimetype='text/html; charset=utf-8')
-    if ext=='.css':
-        return Response(x.read_text(encoding='utf-8',errors='replace'),
-                        mimetype='text/css')
-    # Any other asset the previewed page references relatively (JS, images,
-    # fonts, JSON, etc.) — serve it with its guessed mimetype so the page
-    # actually works, not just renders bare markup.
-    mt=mimetypes.guess_type(x.name)[0] or 'application/octet-stream'
-    return send_file(x, mimetype=mt)
+    if not access(pid):return jsonify(error='Нет доступа'),403
+    try:x=fpath(pid,path)
+    except ValueError as e:return jsonify(error=str(e)),400
+    if not x.is_file():return jsonify(error='Файл не найден'),404
+    return jsonify(path=clean(path),content=x.read_text(encoding='utf-8',errors='replace'),language=language_for(x.name))
 
 @app.delete('/api/projects/<int:pid>/files')
 @auth
@@ -767,47 +528,94 @@ def revoke_local_share(token):
     c=db(); c.execute('UPDATE local_shares SET active=0 WHERE token=?',(token,)); c.commit(); c.close(); return jsonify(ok=True)
 
 
+def project_venv(pid):
+    v=pdir(pid)/'.venv'
+    if not (v/'pyvenv.cfg').exists():
+        subprocess.run([sys.executable,'-m','venv',str(v)],cwd=pdir(pid),capture_output=True,text=True,timeout=60)
+    return v
 
-@app.get('/api/projects/<int:pid>/preview-assets/<path:path>')
+def venv_python(pid):
+    v=project_venv(pid)
+    exe=v/'Scripts'/'python.exe' if os.name=='nt' else v/'bin'/'python'
+    return str(exe)
+
+def update_requirements(pid):
+    py=venv_python(pid)
+    r=subprocess.run([py,'-m','pip','freeze'],cwd=pdir(pid),capture_output=True,text=True,timeout=60)
+    if r.returncode==0:
+        (pdir(pid)/'requirements.txt').write_text(r.stdout,encoding='utf-8')
+    return r.stdout
+
+@app.get('/api/projects/<int:pid>/packages')
 @auth
-def preview_asset(pid,path):
+def project_packages(pid):
     if not access(pid): return jsonify(error='Нет доступа'),403
-    try: x=fpath(pid,path)
-    except ValueError as e: return jsonify(error=str(e)),400
-    if not x.is_file(): return jsonify(error='Файл не найден'),404
-    return send_file(x)
-
-@app.post('/api/web-preview/start')
-@auth
-def start_web_preview():
-    d = request.get_json() or {}
-    pid = int(d.get('project_id') or 0)
-    path = clean(d.get('path') or 'app.py')
     try:
-        token, port = _start_web_preview(pid, path)
-        return jsonify(ok=True, kind='web', token=token,
-                       url=f'/web-preview/{token}/')
-    except PermissionError as e:
-        return jsonify(error=str(e)), 403
-    except (ValueError, FileNotFoundError, RuntimeError) as e:
-        return jsonify(error=str(e)), 400
+        py=venv_python(pid)
+        r=subprocess.run([py,'-m','pip','list','--format','json'],cwd=pdir(pid),capture_output=True,text=True,timeout=60)
+        if r.returncode!=0:return jsonify(error=r.stderr[-4000:]),500
+        import json
+        return jsonify(json.loads(r.stdout))
+    except Exception as e:return jsonify(error=str(e)),500
 
-@app.post('/api/web-preview/<token>/stop')
+@app.post('/api/projects/<int:pid>/packages/install')
 @auth
-def stop_web_preview(token):
-    with WEB_PREVIEWS_LOCK:
-        item = WEB_PREVIEWS.get(token)
-    if not item or not access(item['pid']):
-        return jsonify(error='Предпросмотр не найден'), 404
-    _stop_web_preview(token)
-    return jsonify(ok=True)
+def install_package(pid):
+    if not access(pid,True): return jsonify(error='Нет прав'),403
+    d=request.get_json() or {}; name=str(d.get('package','')).strip()
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+(?:==[A-Za-z0-9_.!+-]+)?',name):
+        return jsonify(error='Некорректное имя пакета'),400
+    try:
+        py=venv_python(pid)
+        r=subprocess.run([py,'-m','pip','install',name],cwd=pdir(pid),capture_output=True,text=True,timeout=180)
+        if r.returncode!=0:return jsonify(ok=False,output=(r.stdout+r.stderr)[-12000:]),400
+        req=update_requirements(pid)
+        return jsonify(ok=True,output=(r.stdout+r.stderr)[-12000:],requirements=req)
+    except subprocess.TimeoutExpired:return jsonify(ok=False,error='Установка превысила 180 секунд'),408
+    except Exception as e:return jsonify(ok=False,error=str(e)),500
 
-@app.route('/web-preview/<token>/', defaults={'subpath': ''},
-             methods=['GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD'])
-@app.route('/web-preview/<token>/<path:subpath>',
-           methods=['GET','POST','PUT','PATCH','DELETE','OPTIONS','HEAD'])
-def web_preview(token, subpath):
-    return _proxy_web_preview(token, subpath) or (jsonify(error='Предпросмотр не найден'), 404)
+@app.post('/api/projects/<int:pid>/packages/uninstall')
+@auth
+def uninstall_package(pid):
+    if not access(pid,True): return jsonify(error='Нет прав'),403
+    d=request.get_json() or {}; name=str(d.get('package','')).strip()
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+',name):return jsonify(error='Некорректное имя пакета'),400
+    try:
+        py=venv_python(pid); r=subprocess.run([py,'-m','pip','uninstall','-y',name],cwd=pdir(pid),capture_output=True,text=True,timeout=120)
+        update_requirements(pid); return jsonify(ok=r.returncode==0,output=(r.stdout+r.stderr)[-12000:])
+    except Exception as e:return jsonify(ok=False,error=str(e)),500
+
+@app.post('/api/projects/<int:pid>/terminal')
+@auth
+def terminal(pid):
+    if not access(pid): return jsonify(error='Нет доступа'),403
+    d=request.get_json() or {}; command=str(d.get('command','')).strip()
+    if not command:return jsonify(error='Введите команду'),400
+    if len(command)>500:return jsonify(error='Команда слишком длинная'),413
+    import shlex
+    try: args=shlex.split(command)
+    except ValueError as e:return jsonify(error=str(e)),400
+    if not args:return jsonify(error='Пустая команда'),400
+    cmd=args[0].lower()
+    aliases={'python':'python','python3':'python','pip':'pip','pip3':'pip','pwd':'pwd','ls':'ls','dir':'ls','cat':'cat','type':'cat','echo':'echo'}
+    if cmd not in aliases:return jsonify(ok=False,output=f'Команда «{cmd}» отключена. Разрешены: python, pip, pip3, pwd, ls, dir, cat, type, echo'),400
+    work=pdir(pid); work.mkdir(parents=True,exist_ok=True)
+    if cmd in ('pip','pip3'):
+        exe=venv_python(pid); args=[exe,'-m','pip']+args[1:]
+    elif cmd in ('python','python3'):
+        exe=venv_python(pid); args=[exe]+args[1:]
+    elif cmd=='pwd': args=['pwd']
+    elif cmd=='ls': args=['ls']+args[1:]
+    elif cmd=='cat':
+        if len(args)!=2:return jsonify(ok=False,output='Использование: cat файл'),400
+        try: args=['cat',str(fpath(pid,args[1]))]
+        except ValueError as e:return jsonify(ok=False,output=str(e)),400
+    env=os.environ.copy(); env['PYTHONUNBUFFERED']='1'; env['PYTHONIOENCODING']='utf-8'; env['HOME']=str(work)
+    try:
+        r=subprocess.run(args,cwd=work,capture_output=True,text=True,timeout=60,env=env,shell=False)
+        return jsonify(ok=r.returncode==0,returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
+    except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output='⏱ Команда превысила 60 секунд'),408
+    except Exception as e:return jsonify(ok=False,error=str(e)),500
 
 @app.post('/api/run')
 @auth
@@ -836,79 +644,14 @@ def run():
     if ext not in ('.py','.pyw'): return jsonify(error='Для запуска поддерживаются Python, HTML, CSS и SQL'),400
     stdin_data=str(d.get('stdin',''))
     if len(stdin_data)>20000:return jsonify(error='Тестовые данные слишком большие'),413
-
-    # Web applications (Flask/FastAPI/uvicorn/http.server) are servers by design:
-    # running them as a console program would wait forever and falsely look like
-    # an input()/infinite-loop timeout. Test Flask apps without calling app.run().
-    try:
-        source = target.read_text(encoding='utf-8', errors='replace')
-    except Exception:
-        source = ''
-    web_markers = (
-        'from flask import', 'import flask', 'Flask(', '.run(host=', '.run(port=',
-        'FastAPI(', 'uvicorn.run(', 'app.run(', 'serve_forever('
-    )
-    is_web = any(marker in source for marker in web_markers)
-    if is_web:
-        try:
-            token, port = _start_web_preview(pid, path)
-            return jsonify(
-                ok=True,
-                kind='web',
-                token=token,
-                url=f'/web-preview/{token}/',
-                output=(
-                    '🌐 Веб-приложение запущено и открыто в живом предпросмотре ниже.\n'
-                    'Сервер продолжает работать в фоне, пока вы не закроете предпросмотр '
-                    'или не запустите файл заново.'
-                )
-            )
-        except PermissionError as e:
-            return jsonify(ok=False, kind='web', error=str(e)), 403
-        except (ValueError, FileNotFoundError) as e:
-            # e.g. not actually a Flask app (FastAPI/uvicorn/http.server aren't
-            # supported by this live-preview launcher).
-            return jsonify(ok=False, kind='web', error=str(e), output=str(e))
-        except RuntimeError as e:
-            return jsonify(ok=False, kind='web', error=str(e), output=str(e))
-
     with tempfile.TemporaryDirectory(prefix='pyspace_') as td:
         work=Path(td)/'project'; shutil.copytree(pdir(pid),work); script=work/path
         env={'PATH':os.environ.get('PATH',''),'PYTHONIOENCODING':'utf-8','PYTHONUNBUFFERED':'1','HOME':str(work)}
         try:
-            popen_kwargs={}
-            if os.name == 'nt':
-                popen_kwargs['creationflags']=getattr(subprocess,'CREATE_NEW_PROCESS_GROUP',0)
-            else:
-                popen_kwargs['start_new_session']=True
-            r=subprocess.run(
-                [sys.executable,'-I',str(script)],
-                cwd=work,
-                input=stdin_data,
-                capture_output=True,
-                text=True,
-                timeout=TIMEOUT,
-                env=env,
-                **popen_kwargs
-            )
-            return jsonify(
-                ok=r.returncode==0,
-                kind='python',
-                returncode=r.returncode,
-                output=(r.stdout+r.stderr)[-16000:]
-            )
-        except subprocess.TimeoutExpired:
-            return jsonify(
-                ok=False,
-                kind='python',
-                returncode=-1,
-                error='TIMEOUT',
-                output=(
-                    f'⏱ Превышен лимит выполнения {TIMEOUT} сек.\n'
-                    'Если программа использует input(), укажите все значения во вкладке «Ввод» перед запуском.\n'
-                    'Если это бесконечный цикл, остановите/исправьте цикл.'
-                )
-            )
+            py=venv_python(pid)
+            r=subprocess.run([py,'-I',str(script)],cwd=work,input=stdin_data,capture_output=True,text=True,timeout=TIMEOUT,env=env)
+            return jsonify(ok=r.returncode==0,kind='python',returncode=r.returncode,output=(r.stdout+r.stderr)[-16000:])
+        except subprocess.TimeoutExpired:return jsonify(ok=False,returncode=-1,output=f'⏱ Превышен лимит {TIMEOUT} сек.\nВозможна бесконечная input()/петля.')
 
 @app.get('/api/debug/session')
 @auth
